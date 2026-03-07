@@ -10,16 +10,19 @@ module tlb #(
     input logic clk,
     input logic rst,
 
+    // virtual address lookup
     input logic lookup_valid,
     input logic [VADDR_W-1:0] lookup_vaddr,
     input logic [ID_W-1:0] lookup_id,
     output logic lookup_ready,
 
+    // physical address response
     output logic resp_valid,
     output logic [ID_W-1:0] resp_id,
     output logic resp_hit,
     output logic [PADDR_W-1:0] resp_paddr,
 
+    // virtual/physical address mapping for fill, get this from lsq
     input logic fill_valid,
     input logic [VADDR_W-1:0] fill_vaddr,
     input logic [PADDR_W-1:0] fill_paddr,
