@@ -108,17 +108,16 @@ module tlb #(
 
     assign lookup_hit_ppn = ppn[lookup_hit_idx];
 
-    // update lru victim TODO: prob need to make this more efficient
-    always_comb begin
-        for (int i = 0; i < ENTRIES; i = i+1) begin
-            lru_row_zero[i] = 1'b1;
-            for (int j = 0; j < ENTRIES; j = j+1) begin
-                if ((i != j) && lru_mat[i][j]) begin
-                    lru_row_zero[i] = 1'b0;
-                end
+    // update lru victim
+    generate
+        for (genvar r = 0; r < ENTRIES; r = r + 1) begin : gen_row_zero
+            logic [ENTRIES-1:0] row_bits;
+            for (genvar c = 0; c < ENTRIES; c = c + 1) begin : gen_row_bits
+                assign row_bits[c] = (r == c) ? 1'b0 : lru_mat[r][c];
             end
+            assign lru_row_zero[r] = ~(|row_bits);
         end
-    end
+    endgenerate
 
     // hit -> invalid -> lru victim
     assign fill_target_idx = fill_hit_any ? fill_hit_idx :
@@ -133,13 +132,6 @@ module tlb #(
             resp_hit <= 1'b0;
             resp_paddr <= '0;
 
-            for (int i = 0; i < ENTRIES; i = i+1) begin
-                vpn[i] <= '0; // not rlly needed
-                ppn[i] <= '0;
-                for (int j = 0; j < ENTRIES; j = j+1) begin
-                    lru_mat[i][j] <= 1'b0;
-                end
-            end
         end else begin
             resp_valid <= lookup_fire;
             if (lookup_fire) begin
