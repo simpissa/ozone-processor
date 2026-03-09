@@ -1,3 +1,10 @@
+typedef struct packed {
+    logic [3:0] trace_id;
+    logic [47:0] trace_vaddr;
+    logic trace_vaddr_is_valid;
+    logic trace_value_is_valid;
+    logic [63:0] trace_value;
+} st_entry;
 module store_queue #(parameter int SQ_SIZE=8)(
     input logic rst,           // reset
     input logic clk_in,        // clock
@@ -12,33 +19,25 @@ module store_queue #(parameter int SQ_SIZE=8)(
     input logic trace_value_is_valid,
     input logic [63:0] trace_value,
     input logic resolve,
+    input logic [4:0] age,      // Age of trace
 
     
     // Interacting with read queue
     input logic [47:0] search_addr,
-    input logic [$clog2(SQ_SIZE)-1:0] prev_sq_tail;
-    output logic [$clog2(SQ_SIZE)-1:0] curr_sq_tail;
+    input logic [4:0] load_age,      // Age of load
 
     output logic found, // 1 if address found, 0 if not found
     output logic resolved, // if found: 0 if unresolved, 1 if valid value
     output logic [63:0] search_value
 
 
-    // Writes supposed to be done once ROB retires them, not sure if should implement here
-    // or how to determine when to pop queue head?
+    // Note sure when can commit stores, should be given by ROB
     // Interacting with L1 cache
-    // output logic [47:0] write_vaddr,
-    // input logic ready_in,
-    // output logic valid_out,
+    output logic [47:0] write_vaddr,
+    input logic ready_in,
+    output logic valid_out,
 
 );
-    typedef struct packed {
-        logic [3:0] trace_id;
-        logic [47:0] trace_vaddr;
-        logic trace_vaddr_is_valid;
-        logic trace_value_is_valid;
-        logic [63:0] trace_value;
-    } st_entry;
     st_entry SQ [SQ_SIZE];
 
     logic [$clog2(SQ_SIZE)-1:0] sq_head;
