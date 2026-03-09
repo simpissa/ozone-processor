@@ -14,27 +14,94 @@ module store_queue #(parameter int SQ_SIZE=8)(
     input logic resolve,
 
     
-    // TODO: I think we also need a way for SQ to alert a subset of load instructions to retry
     // Interacting with read queue
     input logic [47:0] search_addr,
-    input logic valid_to_search,
-    output logic ready_to_search,
+    input logic [$clog2(SQ_SIZE)-1:0] prev_sq_tail;
+    output logic [$clog2(SQ_SIZE)-1:0] curr_sq_tail;
 
-    output logic found, // 1 if found, 0 if not found
-    output logic unresolved, // if found: 1 if unresolved, 0 if valid
-    output logic [63:0] search_value,
-    output logic valid_search_value,
-    input logic ready_search_value
+    output logic found, // 1 if address found, 0 if not found
+    output logic resolved, // if found: 0 if unresolved, 1 if valid value
+    output logic [63:0] search_value
 
 
     // Writes supposed to be done once ROB retires them, not sure if should implement here
     // or how to determine when to pop queue head?
     // Interacting with L1 cache
-    //output logic [47:0] write_vaddr,
-    //input logic ready_in,
-    //output logic valid_out,
+    // output logic [47:0] write_vaddr,
+    // input logic ready_in,
+    // output logic valid_out,
 
 );
+    typedef struct packed {
+        logic [3:0] trace_id;
+        logic [47:0] trace_vaddr;
+        logic trace_vaddr_is_valid;
+        logic trace_value_is_valid;
+        logic [63:0] trace_value;
+    } st_entry;
+    st_entry SQ [SQ_SIZE];
+
+    logic [$clog2(SQ_SIZE)-1:0] sq_head;
+    logic [$clog2(SQ_SIZE)-1:0] sq_tail;
+
+    logic receive_new_data;
+    logic [SQ_SIZE-1:0] curr_entries;
     
-    
+
+    assign ready_out = curr_entries!={SQ_SIZE-1{1'b1}};
+    assign receive_new_data = ready_out&valid_trace;
+    always_ff(@posedge clk_in) begin
+        if(reset) begin
+            sq_head<=0;
+            sq_tail<=0;
+        end else begin
+            if(receive_new_data) begin
+                curr_entries[sq_tail] <= 1'b1;
+                SQ[sq_tail].trace_id<=trace_id;
+                SQ[sq_tail].trace_vaddr<=trace_vaddr;
+                SQ[sq_tail].trace_vaddr_is_valid<=trace_vaddr_is_valid;
+                SQ[sq_tail].trace_value_is_valid<=trace_value_is_valid;
+                SQ[sq_tail].trace_value<=trace_value;
+                sq_tail<=sq_tail+1;
+            end
+        end
+    end
+
+    assign curr_sq_tail = sq_tail;
+    logic [47:0] search_vaddr;
+    logic [SQ_SIZE-1:0] match_result;
+    logic [SQ_SIZE-1:0] curr_unresolved;
+    logic [SQ_SIZE-1:0] stopping_values;
+    assign stopping_values= curr_unresolved|match_result;
+    genvar i;
+    generate
+    for (i=0;i<SQ_SIZE;i++) begin: match_addresses
+        assign match_result[i] = curr_entries[i]&(SQ[i].trace_vaddr==search_vaddr);
+        assign curr_unresolved[i] = curr_entries[i]&(!SQ[i].trace_vaddr_is_valid|!SQ[i].trace_value_is_valid);
+    end
+    endgenerate
+
+    logic [SQ_SIZE-1:0] previous_store_mask;
+    logic [$clog2(SQ_SIZE)-1:0] new_prev_tail;
+    logic [$clog2(SQ_SIZE)-1:0] value_index;
+    always_comb begin
+        new_prev_tail=prev_sq_tail-sq_head;
+        if (sq_head!=sq_tail) begin
+            previous_store_mask = {(match_result|curr_unresolved)[SQ_SIZE-1:sq_head],[sq_head-1:0]};
+        end else begin
+            previous_store_mask = match_result|curr_unresolved;
+        end
+        if(new_prev_tail<sq_head||new_prev_tail>sq_tail||{SQ_SIZE-new_prev_tail{1'b0},{new_prev_tail{1'b1}}}&previous_store_mask=={SQ_SIZE{1'b0}}) begin
+            found = 1'b0;
+        end else begin
+            found = 1'b1;
+            value_index=$clog2({SQ_SIZE-new_prev_tail{1'b0},{new_prev_tail{1'b1}}}&previous_store_mask)-1+sq_head;
+            if (curr_unresolved[value_index]) begin
+                resolved=1'b0;
+            end else begin
+                resolved=1'b1;
+                search_value = SQ[value_index].trace_value;
+            end
+        end
+    end
 endmodule
