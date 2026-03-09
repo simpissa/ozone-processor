@@ -22,8 +22,9 @@ module tlb #(
     output logic resp_hit,
     output logic [PADDR_W-1:0] resp_paddr,
 
-    // virtual/physical address mapping for fill, get this from lsq
+    // virtual/physical address mapping for fill, from trace
     input logic fill_valid,
+    input logic [2:0] trace_op,
     input logic [VADDR_W-1:0] fill_vaddr,
     input logic [PADDR_W-1:0] fill_paddr,
     output logic fill_ready
@@ -140,7 +141,7 @@ module tlb #(
                 resp_paddr <= lookup_hit_any ? {lookup_hit_ppn, lookup_off} : '0;
             end else begin
                 resp_id <= '0; resp_hit <= 1'b0; resp_paddr <= '0; end
-            if (fill_valid) begin
+            if (fill_valid && trace_op == 4) begin // fill
                 valid[fill_target_idx] <= 1'b1;
                 vpn[fill_target_idx] <= fill_vpn;
                 ppn[fill_target_idx] <= fill_ppn;
