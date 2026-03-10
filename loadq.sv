@@ -12,17 +12,17 @@ module load_queue #(
     input  logic [ID_W-1:0]   trace_id,
     input  logic [47:0]  trace_vaddr,
     input  logic         trace_vaddr_is_valid,
+    input  logic [ID_W:0] trace_age,
 
     // Interface to Store Queue (for dependency checking / forwarding)
     output logic         sq_query_valid,
     output logic [47:0]  sq_query_addr,
     output logic [3:0]   sq_query_id,
-    output logic [$clog2(LQ_SIZE-1:0] sq_query_tail,
+    output logic [ID_W:0] sq_query_age,
     input  logic         sq_forward_valid,
     input  logic [63:0]  sq_forward_data,
     input  logic         sq_conflict,
     input  logic         sq_miss, // use this so the sq can tell us they didn't find anything
-    input  logic [$clog2(LQ_SIZE)-1:0] sq_curr_tail; // current tail
 
     // Request to L1 data cache
     output logic         l1_req_valid,
@@ -48,7 +48,7 @@ localparam INVALID_IDX = LQ_SIZE;
 typedef struct packed {
     logic valid;
     logic [ID_W-1:0] id;
-    logic [IDX_W-1:0] sq_tail;
+    logic [ID_W:0] age;
     logic [47:0] vaddr;
     logic addr_valid;
     logic issued;
@@ -70,6 +70,8 @@ logic [IDX_W-1:0] tail;
 logic [LQ_SIZE-1:0] ready;
 logic [ID_W:0] id_map [0:LQ_SIZE-1];
 lq_entry queue [0:LQ_SIZE-1];
+
+logic trace_collected;
 
 // stages
 logic waiting_issue;
@@ -95,6 +97,7 @@ initial begin
     tail = 0;
     issue_storeq = 0;
     issue_cache = 0;
+    trace_collected = 0;
     waiting_issue = 1;
 
 end
@@ -106,7 +109,6 @@ always_ff @(posedge clk) begin
 
         for (int i = 0; i < LQ_SIZE; ++i) begin
             queue[i].valid      <= 1'b0;
-            queue[i].sq_tail    <= 0;
             queue[i].vaddr      <= 48'b0;
             queue[i].addr_valid <= 1'b0;
             queue[i].issued     <= 1'b0;
@@ -121,6 +123,7 @@ always_ff @(posedge clk) begin
         issue_storeq  <= 0;
         issue_cache   <= 0;
         waiting_issue <= 1;
+        trace_collected <= 0;
 
     end
     
@@ -138,12 +141,12 @@ always_ff @(posedge clk) begin
 
                 trace_collected <= 1;
 
-                id_map[trace_id] <= tail;
+                id_map[trace_id] <= { 1'b0, tail };
 
                 queue[tail].id          <= trace_id;
                 queue[tail].vaddr       <= trace_vaddr;
                 queue[tail].addr_valid  <= trace_vaddr_is_valid;
-                queue[tail].sq_tail     <= sq_curr_tail;
+                queue[tail].age         <= trace_age;
                 queue[tail].issued      <= 0;
                 queue[tail].conflict    <= 0;
                 queue[tail].completed   <= 0;
@@ -158,10 +161,10 @@ always_ff @(posedge clk) begin
             
             // do we actually have something for this trace_id, or is it just for a store?
             if (id_map[trace_id] != INVALID_IDX) begin
-                assert(queue[id_map[trace_id]].valid);
+                assert(queue[id_map[trace_id][IDX_W-1:0]].valid);
 
-                queue[id_map[trace_id]].vaddr       <= trace_vaddr;
-                queue[id_map[trace_id]].addr_valid  <= trace_vaddr_is_valid;
+                queue[id_map[trace_id][IDX_W-1:0]].vaddr       <= trace_vaddr;
+                queue[id_map[trace_id][IDX_W-1:0]].addr_valid  <= trace_vaddr_is_valid;
             end
 
             // reset all conflict bits
@@ -184,7 +187,7 @@ always_ff @(posedge clk) begin
 
             sq_query_addr  <= queue[next_issue_idx].vaddr;
             sq_query_id    <= queue[next_issue_idx].id;
-            sq_query_tail  <= queue[next_issue_idx].sq_tail;
+            sq_query_age   <= queue[next_issue_idx].age;
             sq_query_valid <= 1;
             
             // its in the issue pipeline now
