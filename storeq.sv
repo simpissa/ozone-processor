@@ -29,7 +29,7 @@ module store_queue #(parameter int SQ_SIZE=8)(
 
     output logic found, // 1 if address found, 0 if not found
     output logic resolved, // if found: 0 if unresolved, 1 if valid value
-    output logic [63:0] search_value
+    output logic [63:0] search_value,
 
 
     // Note sure when can commit stores, should be given by ROB
@@ -37,8 +37,7 @@ module store_queue #(parameter int SQ_SIZE=8)(
     output logic [47:0] write_vaddr,
     output logic [63:0] write_value,
     input logic ready_in,
-    output logic valid_out,
-
+    output logic valid_out
 );
     st_entry SQ [SQ_SIZE];
 
@@ -49,7 +48,7 @@ module store_queue #(parameter int SQ_SIZE=8)(
     logic [SQ_SIZE-1:0] curr_entries;
     
 
-    assign ready_out = curr_entries!={SQ_SIZE{1'b1}};
+    assign ready_out = curr_entries!={SQ_SIZE{1'b1}}|resolve;
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
