@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 typedef struct packed {
     logic [3:0] trace_id;
     logic [47:0] trace_vaddr;
@@ -20,7 +21,7 @@ module store_queue #(parameter int SQ_SIZE=8)(
     input logic trace_value_is_valid,
     input logic [63:0] trace_value,
     input logic resolve,
-    input logic [4:0] age,      // Age of trace
+    input logic [4:0] age,      // Current age
 
     
     // Interacting with read queue
@@ -46,33 +47,35 @@ module store_queue #(parameter int SQ_SIZE=8)(
 
     logic receive_new_data;
     logic [SQ_SIZE-1:0] curr_entries;
-    
 
-    assign ready_out = curr_entries!={SQ_SIZE{1'b1}}|resolve;
+    logic write_new_data;    
+
+    assign ready_out = curr_entries!={SQ_SIZE{1'b1}}|resolve|write_new_data;
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
-    assign valid_out = curr_entries=={SQ_SIZE{1'b1}}&!curr_unresolved[sq_head];
+    assign valid_out = (curr_entries=={SQ_SIZE{1'b1}}|curr_entries!={SQ_SIZE{1'b0}}&age-SQ[sq_head].age>=16)&!curr_unresolved[sq_head];
     assign write_new_data = valid_out & ready_in;
     assign write_vaddr = SQ[sq_head].trace_vaddr;
     assign write_value = SQ[sq_head].trace_value;
 
     logic [SQ_SIZE-1:0] tag_matching;
-    always_ff(@posedge clk_in) begin
-        if(reset) begin
+
+    logic [SQ_SIZE-1:0] tailmask;
+    always_ff @(posedge clk_in) begin
+        if(rst) begin
             sq_head<=0;
             sq_tail<=0;
         end else begin
             if(receive_new_data) begin
                 if(resolve) begin
-                    if(tag_matching != {4{1'b0}}) begin
-                        SQ[$clog2(tag_matching)-1].trace_vaddr<=trace_vaddr;
-                        SQ[$clog2(tag_matching)-1].trace_vaddr_is_valid<=trace_vaddr_is_valid;
-                        SQ[$clog2(tag_matching)-1].trace_value_is_valid<=trace_value_is_valid;
-                        SQ[$clog2(tag_matching)-1].trace_value<=trace_value;
+                    if(tag_matching != {SQ_SIZE{1'b0}}) begin
+                        SQ[$clog2(tag_matching)].trace_vaddr<=trace_vaddr;
+                        SQ[$clog2(tag_matching)].trace_vaddr_is_valid<=trace_vaddr_is_valid;
+                        SQ[$clog2(tag_matching)].trace_value_is_valid<=trace_value_is_valid;
+                        SQ[$clog2(tag_matching)].trace_value<=trace_value;
                     end
-                end
-                else begin
+                end else begin
                     curr_entries[sq_tail] <= 1'b1;
                     SQ[sq_tail].trace_id<=trace_id;
                     SQ[sq_tail].trace_vaddr<=trace_vaddr;
@@ -81,6 +84,11 @@ module store_queue #(parameter int SQ_SIZE=8)(
                     SQ[sq_tail].trace_value<=trace_value;
                     SQ[sq_tail].age<=age;
                     sq_tail<=sq_tail+1;
+                    if(sq_tail==0) begin
+                        tailmask <= {{SQ_SIZE-1{1'b0}},1'b1};
+                    end else begin
+                        tailmask[sq_tail] <= 1'b1;
+                    end
                 end
             end else if(write_new_data) begin
                 curr_entries[sq_head]<=1'b0;
@@ -89,7 +97,6 @@ module store_queue #(parameter int SQ_SIZE=8)(
         end
     end
 
-    assign curr_sq_tail = sq_tail;
     logic [47:0] search_vaddr;
     logic [SQ_SIZE-1:0] match_result;
     logic [SQ_SIZE-1:0] curr_unresolved;
@@ -105,17 +112,21 @@ module store_queue #(parameter int SQ_SIZE=8)(
     endgenerate
 
     logic [SQ_SIZE-1:0] current_store_mask;
-    logic [SQ_SIZE-1:0] previous_store_mask;
-    logic [$clog2(SQ_SIZE)-1:0] value_index;
-    always_comb begin
-        if (sq_head!=sq_tail) begin
-            current_store_mask = {(match_result|curr_unresolved)[SQ_SIZE-1:sq_head],[sq_head-1:0]};
-        end else begin
-            current_store_mask = match_result|curr_unresolved;
-        end
+    assign current_store_mask = match_result|curr_unresolved;
+
+    integer value_index;
+    always_latch begin
         found = current_store_mask!={SQ_SIZE{1'b0}};
         if(found) begin
-            value_index=$clog2(current_store_mask)-1+sq_head;
+            if(sq_head<sq_tail) begin
+                value_index=$clog2(current_store_mask);
+            end else begin
+                if ((current_store_mask&tailmask)!={SQ_SIZE{1'b0}}) begin
+                    value_index=$clog2(current_store_mask&tailmask);
+                end else begin
+                    value_index=$clog2(current_store_mask);
+                end
+            end
             resolved = !curr_unresolved[value_index];
             search_value = SQ[value_index].trace_value;
         end
