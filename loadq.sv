@@ -1,6 +1,7 @@
+`timescale 1ns / 1ps
 
 module load_queue #(
-    parameter LQ_SIZE = 16,
+    parameter LQ_SIZE = 8,
     parameter ID_W = 4
 )(
     input  logic         clk,
@@ -43,6 +44,7 @@ module load_queue #(
 
 localparam IDX_W = $clog2(LQ_SIZE);
 localparam INVALID_IDX = LQ_SIZE;
+localparam N_TRACES = 1 << ID_W;
 
 // TODO: add "ROB idx" (count # of traces) to store relative age
 typedef struct packed {
@@ -68,10 +70,15 @@ logic [IDX_W-1:0] head;
 logic [IDX_W-1:0] tail;
 
 logic [LQ_SIZE-1:0] ready;
-logic [ID_W:0] id_map [0:LQ_SIZE-1];
+
+// id map needs to have 
+logic [IDX_W:0] id_map [0:N_TRACES-1];
 lq_entry queue [0:LQ_SIZE-1];
 
+// misc logic
 logic trace_collected;
+logic sq_had_miss;
+
 
 // stages
 logic waiting_issue;
@@ -99,11 +106,15 @@ initial begin
     issue_cache = 0;
     trace_collected = 0;
     waiting_issue = 1;
+    sq_query_valid = 0;
+    l1_req_valid = 0;
+    load_complete_valid = 0;
+    sq_had_miss = 0;
 
 end
 
 always_ff @(posedge clk) begin
-    
+
     // set our queue and ptrs back to 0
     if (reset) begin
 
@@ -122,22 +133,35 @@ always_ff @(posedge clk) begin
         tail <= 0;
         issue_storeq  <= 0;
         issue_cache   <= 0;
-        waiting_issue <= 1;
+        sq_had_miss <= 0;
         trace_collected <= 0;
+
+        sq_query_valid <= 0;
+        l1_req_valid <= 0;
+        load_complete_valid <= 0;
+
+        waiting_issue <= 1;
 
     end
     
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
 
+        // $display("trace is valid");
+
         trace_collected <= 0;
 
         if (trace_op == OP_MEM_LOAD) begin
+
+            // $display("op is mem load");
             
-            // check that the queue isn't full
-            // how do i tell that it's been collected? 
-            if (tail != head) begin
+            // check if queue is full
+            // if tail == head, then valid bit on queue head tells us if its full or empty
+            // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
+            if (tail != head || !queue[head].valid) begin
                 assert(!queue[tail].valid);
+
+                // $display("we are here");
 
                 trace_collected <= 1;
 
@@ -150,6 +174,7 @@ always_ff @(posedge clk) begin
                 queue[tail].issued      <= 0;
                 queue[tail].conflict    <= 0;
                 queue[tail].completed   <= 0;
+                queue[tail].valid       <= 1;
 
                 tail <= tail + 1;
             end
@@ -175,8 +200,12 @@ always_ff @(posedge clk) begin
     end
 
     if (waiting_issue) begin
+
+        // $display("waiting issue correct");
         
         if (found_issue) begin
+
+            // $display("found_issue correct");
 
             assert(queue[next_issue_idx].valid);
             assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
@@ -200,10 +229,14 @@ always_ff @(posedge clk) begin
 
     if (issue_storeq) begin
         // we issued to the storeq, waiting for a response
-
-        if (sq_miss) begin
+        
+        if (sq_miss || sq_had_miss) begin
+            sq_had_miss <= 1;
             // no data to forward, so query the cache
             if (l1_req_ready) begin
+                // don't care anymore
+                sq_had_miss <= 0;
+
                 l1_req_vaddr <= queue[issue_idx].vaddr; 
                 l1_req_id    <= queue[issue_idx].id;
                 l1_req_valid <= 1;
@@ -211,16 +244,22 @@ always_ff @(posedge clk) begin
                 issue_storeq <= 0;
             end
 
+            sq_query_valid <= 0;
+
         end else if (sq_forward_valid) begin
             queue[issue_idx].completed <= 1;
             queue[issue_idx].data <= sq_forward_data;
             issue_storeq <= 0;
             waiting_issue <= 1;
+            sq_query_valid <= 0;
+
         end else if (sq_conflict) begin
             queue[issue_idx].conflict <= 1;
             queue[issue_idx].issued <= 0;
             issue_storeq <= 0;
             waiting_issue <= 1;
+            sq_query_valid <= 0;
+
         end
 
     end
@@ -241,15 +280,27 @@ always_ff @(posedge clk) begin
     
 
     // dequeue the head
-    if (queue[head].completed) begin
-        load_complete_id <= queue[head].id;
-        load_complete_data <= queue[head].data;
+    if (queue[head].completed && queue[head].valid) begin
+        assert(queue[head].valid);
+        // invalidate the entry for this guy
+        id_map[queue[head].id] <= INVALID_IDX;
+
+        load_complete_id    <= queue[head].id;
+        load_complete_data  <= queue[head].data;
         load_complete_valid <= 1;
 
         // TODO: do we need to wait for data to be read? or can we just move on
-        // also: this is a bug if LQ_SIZE is not a power of 2
+        // note^: if I ever need to change this, i should make it combinatorial
+        // (the output stuff) and have an input bit for load_received
+        // whenever load received, do everything below!
+        queue[head].valid <= 0; 
+        queue[head].issued <= 0;
+        queue[head].conflict <= 0;
+        queue[head].completed <= 0;
         head <= head + 1;
+
     end else begin
+        
         load_complete_id <= 0;
         load_complete_data <= 0;
         load_complete_valid <= 0;
@@ -264,6 +315,23 @@ always_comb begin
         ready[i] = queue[i].valid && queue[i].addr_valid 
                 && !queue[i].issued && !queue[i].conflict;
     end
+
+   /*
+    
+    $display("head: %d, tail: %d", head, tail);
+    for (int i = 0; i < LQ_SIZE; ++i) begin
+        $display("entry %d: valid %d addr %d addrvalid %d rdy %d issd %d conf %d cmpl %d",
+                i,
+                queue[i].valid,
+                queue[i].vaddr,
+                queue[i].addr_valid,
+                ready[i],
+                queue[i].issued,
+                queue[i].conflict,
+                queue[i].completed);
+    end
+
+    */
 
     found_issue = 0;
     next_issue_idx = '0;
