@@ -1,8 +1,10 @@
 `timescale 1ns / 1ps
 
-module trace_dispatch #(
+module mem_top #(
+    parameter int PAGE_OFF_W = 12,
     parameter int VADDR_W = 48,
     parameter int PADDR_W = 30,
+    parameter int TLB_ENTRIES = 16,
     parameter int ID_W = 4,
     parameter int LQ_SIZE = 8,
     parameter int SQ_SIZE = 8
@@ -21,7 +23,7 @@ module trace_dispatch #(
     input logic [63:0] trace_value,
     input logic [PADDR_W-1:0] trace_tlb_paddr,
 
-    // load queue
+    // load queue / l1 side
     output logic l1_req_valid,
     output logic [VADDR_W-1:0] l1_req_vaddr,
     output logic [ID_W-1:0] l1_req_id,
@@ -41,11 +43,15 @@ module trace_dispatch #(
     output logic [VADDR_W-1:0] commit_vaddr,
     output logic [63:0] commit_value,
 
-    // tlb fill stream, wired into shared tlb with l1
-    output logic tlb_fill_valid,
-    output logic [VADDR_W-1:0] tlb_fill_vaddr,
-    output logic [PADDR_W-1:0] tlb_fill_paddr,
-    input logic tlb_fill_ready
+    // shared tlb lookup side, intended for the l1
+    input logic tlb_lookup_valid,
+    input logic [VADDR_W-1:0] tlb_lookup_vaddr,
+    input logic [ID_W-1:0] tlb_lookup_id,
+    output logic tlb_lookup_ready,
+    output logic tlb_resp_valid,
+    output logic [ID_W-1:0] tlb_resp_id,
+    output logic tlb_resp_hit,
+    output logic [PADDR_W-1:0] tlb_resp_paddr
 );
 
     typedef enum logic [2:0] {
@@ -60,8 +66,6 @@ module trace_dispatch #(
     // TODO: I think loadq should have a ready signal too? in the case that it stalls
 
     //       Also looks like an error in storeq, uses search_vaddr instead of search_addr
-
-    //       We might need another module higher up to connect l1 and tlb
 
     logic trace_fire;
     logic [AGE_W-1:0] access_age;
@@ -87,6 +91,9 @@ module trace_dispatch #(
     logic [63:0] lq_sq_forward_data;
     logic lq_sq_conflict;
     logic lq_sq_miss;
+
+    logic tlb_fill_valid;
+    logic tlb_fill_ready;
 
     logic raw_trace_is_resolve;
 
@@ -123,8 +130,6 @@ module trace_dispatch #(
         sq_age = access_age;
 
         tlb_fill_valid = 1'b0;
-        tlb_fill_vaddr = trace_vaddr;
-        tlb_fill_paddr = trace_tlb_paddr;
 
         if (trace_fire) begin
             case (trace_op)
@@ -218,5 +223,33 @@ module trace_dispatch #(
         .ready_in(commit_ready),
         .valid_out(commit_valid)
     );
+
+    tlb #(
+        .PAGE_OFF_W(PAGE_OFF_W),
+        .VADDR_W(VADDR_W),
+        .PADDR_W(PADDR_W),
+        .ENTRIES(TLB_ENTRIES),
+        .ID_W(ID_W)
+    ) shared_tlb (
+        .clk(clk),
+        .rst(rst),
+        .lookup_valid(tlb_lookup_valid),
+        .lookup_vaddr(tlb_lookup_vaddr),
+        .lookup_id(tlb_lookup_id),
+        .lookup_ready(tlb_lookup_ready),
+        .resp_valid(tlb_resp_valid),
+        .resp_id(tlb_resp_id),
+        .resp_hit(tlb_resp_hit),
+        .resp_paddr(tlb_resp_paddr),
+        .fill_valid(tlb_fill_valid),
+        .trace_op(trace_op),
+        .fill_vaddr(trace_vaddr),
+        .fill_paddr(trace_tlb_paddr),
+        .fill_ready(tlb_fill_ready)
+    );
+
+    // TODO: L1
+
+    // TODO: L2
 
 endmodule
