@@ -15,43 +15,13 @@ module mem_top #(
     // raw trace from HPS
     input logic trace_valid,
     output logic trace_ready,
-    input logic [2:0] trace_op,
-    input logic [ID_W-1:0] trace_id,
-    input logic [VADDR_W-1:0] trace_vaddr,
-    input logic trace_vaddr_is_valid,
-    input logic trace_value_is_valid,
-    input logic [63:0] trace_value,
-    input logic [PADDR_W-1:0] trace_tlb_paddr,
-
-    // load queue / l1 side
-    output logic l1_req_valid,
-    output logic [VADDR_W-1:0] l1_req_vaddr,
-    output logic [ID_W-1:0] l1_req_id,
-    input logic l1_req_ready,
-    input logic l1_resp_valid,
-    input logic [ID_W-1:0] l1_resp_id,
-    input logic [63:0] l1_resp_data,
-
-    // load queue completion
-    output logic load_complete_valid,
-    output logic [ID_W-1:0] load_complete_id,
-    output logic [63:0] load_complete_data,
+    input logic [127:0] trace_data,
 
     // store commits, send to HPS
     input logic commit_ready,
     output logic commit_valid,
     output logic [VADDR_W-1:0] commit_vaddr,
-    output logic [63:0] commit_value,
-
-    // shared tlb lookup side, intended for the l1
-    input logic tlb_lookup_valid,
-    input logic [VADDR_W-1:0] tlb_lookup_vaddr,
-    input logic [ID_W-1:0] tlb_lookup_id,
-    output logic tlb_lookup_ready,
-    output logic tlb_resp_valid,
-    output logic [ID_W-1:0] tlb_resp_id,
-    output logic tlb_resp_hit,
-    output logic [PADDR_W-1:0] tlb_resp_paddr
+    output logic [63:0] commit_value
 );
 
     typedef enum logic [2:0] {
@@ -63,9 +33,13 @@ module mem_top #(
 
     localparam int AGE_W = ID_W + 1;
 
-    // TODO: I think loadq should have a ready signal too? in the case that it stalls
-
-    //       Also looks like an error in storeq, uses search_vaddr instead of search_addr
+    logic [2:0] trace_op;
+    logic [ID_W-1:0] trace_id;
+    logic [VADDR_W-1:0] trace_vaddr;
+    logic trace_vaddr_is_valid;
+    logic trace_value_is_valid;
+    logic [63:0] trace_value;
+    logic [PADDR_W-1:0] trace_tlb_paddr;
 
     logic trace_fire;
     logic [AGE_W-1:0] access_age;
@@ -92,15 +66,38 @@ module mem_top #(
     logic lq_sq_conflict;
     logic lq_sq_miss;
 
+    logic l1_req_valid;
+    logic [VADDR_W-1:0] l1_req_vaddr;
+    logic [ID_W-1:0] l1_req_id;
+    logic l1_req_ready;
+    logic l1_resp_valid;
+    logic [ID_W-1:0] l1_resp_id;
+    logic [63:0] l1_resp_data;
+
+    logic tlb_lookup_valid;
+    logic [VADDR_W-1:0] tlb_lookup_vaddr;
+    logic tlb_resp_valid;
+    logic [PADDR_W-1:0] tlb_resp_paddr;
+    logic [511:0] l2_resp_data;
+
     logic tlb_fill_valid;
     logic tlb_fill_ready;
 
     logic raw_trace_is_resolve;
 
+    assign trace_op = trace_data[54:52];
+    assign trace_id = trace_data[51:48];
+    assign trace_vaddr = trace_data[47:0];
+    assign trace_vaddr_is_valid = trace_data[55];
+    assign trace_value_is_valid = trace_data[120];
+    assign trace_value = trace_data[119:56];
+    assign trace_tlb_paddr = trace_data[85:56];
+
     assign raw_trace_is_resolve = trace_valid && (trace_op == OP_MEM_RESOLVE);
     assign sq_search_addr = lq_sq_query_addr;
     assign sq_load_age = lq_sq_query_age;
 
+    // TODO: add load queue ready
     always_comb begin
         case (trace_op)
             OP_MEM_LOAD: trace_ready = 1'b1;
@@ -121,6 +118,7 @@ module mem_top #(
         end
     end
 
+    // set valids
     always_comb begin
         lq_trace_valid = 1'b0;
         lq_trace_age = access_age;
@@ -167,6 +165,11 @@ module mem_top #(
         end
     end
 
+    assign l1_req_ready = 1'b0;
+    assign l1_resp_valid = 1'b0;
+    assign l1_resp_id = '0;
+    assign l1_resp_data = '0;
+
     load_queue #(
         .LQ_SIZE(LQ_SIZE),
         .ID_W(ID_W)
@@ -194,9 +197,9 @@ module mem_top #(
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
-        .load_complete_valid(load_complete_valid),
-        .load_complete_id(load_complete_id),
-        .load_complete_data(load_complete_data)
+        .load_complete_valid(), // TODO: should these be used?
+        .load_complete_id(),
+        .load_complete_data()
     );
 
     store_queue #(
@@ -235,11 +238,11 @@ module mem_top #(
         .rst(rst),
         .lookup_valid(tlb_lookup_valid),
         .lookup_vaddr(tlb_lookup_vaddr),
-        .lookup_id(tlb_lookup_id),
-        .lookup_ready(tlb_lookup_ready),
+        .lookup_id(),
+        .lookup_ready(),
         .resp_valid(tlb_resp_valid),
-        .resp_id(tlb_resp_id),
-        .resp_hit(tlb_resp_hit),
+        .resp_id(),
+        .resp_hit(),
         .resp_paddr(tlb_resp_paddr),
         .fill_valid(tlb_fill_valid),
         .trace_op(trace_op),
@@ -248,8 +251,34 @@ module mem_top #(
         .fill_ready(tlb_fill_ready)
     );
 
-    // TODO: L1
+    // TODO: lq-l1, sq-l1, l1-l2 communication are mismatched
+    l1cache #( 
+    .VADDR_W(VADDR_W),
+    .PADDR_W(PADDR_W)
+    ) l1 (
+        .clk(clk),
+        .reset(rst),
+        .v_addr(l1_req_vaddr),
+        .loadValid(l1_req_valid),
+        .storeValid(commit_valid),
+        .l1ready(),
+        .miss(),
+        .data_out(),
+        .l2_data_in(l2_resp_data),
+        .tlb_paddr_in(tlb_resp_paddr),
+        .tlb_paddr_ready(tlb_resp_valid),
+        .tlb_vaddr_out(tlb_lookup_vaddr),
+        .tlb_vaddr_valid(tlb_lookup_valid)
+    );
 
-    // TODO: L2
+    l2cache l2 (
+        .clk_in(clk),
+        .l1_req_valid(),
+        .l1_req_rw(),
+        .l1_req_paddr(),
+        .l1_req_data(),
+        .l1_resp_valid(),
+        .l1_resp_data(l2_resp_data)
+    );
 
 endmodule
