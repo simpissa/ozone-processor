@@ -46,11 +46,9 @@ module store_queue #(parameter int SQ_SIZE=8)(
     logic [$clog2(SQ_SIZE)-1:0] sq_tail;
 
     logic receive_new_data;
-    logic [SQ_SIZE-1:0] curr_entries;
-
     logic write_new_data;    
 
-    assign ready_out = curr_entries!={SQ_SIZE{1'b1}}|resolve|write_new_data;
+    assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
@@ -70,12 +68,22 @@ module store_queue #(parameter int SQ_SIZE=8)(
             if(receive_new_data) begin
                 if(resolve) begin
                     if(tag_matching != {SQ_SIZE{1'b0}}) begin
-                        SQ[$clog2(tag_matching)].trace_vaddr<=trace_vaddr;
-                        SQ[$clog2(tag_matching)].trace_vaddr_is_valid<=trace_vaddr_is_valid;
-                        SQ[$clog2(tag_matching)].trace_value_is_valid<=trace_value_is_valid;
-                        SQ[$clog2(tag_matching)].trace_value<=trace_value;
+                        logic [$clog2(SQ_SIZE)-1:0] addr;
+                        int result;
+                        result = $clog2({1'b0,tag_matching}+1)-1;
+                        addr=result[$clog2(SQ_SIZE)-1:0];
+                        SQ[addr].trace_vaddr<=trace_vaddr;
+                        SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
+                        SQ[addr].trace_value_is_valid<=trace_value_is_valid;
+                        SQ[addr].trace_value<=trace_value;
                     end
                 end else begin
+                    if(write_new_data) begin
+                        if(sq_head != sq_tail) begin
+                            curr_entries[sq_head]<=1'b0;
+                        end
+                        sq_head<=sq_head+1;
+                    end
                     curr_entries[sq_tail] <= 1'b1;
                     SQ[sq_tail].trace_id<=trace_id;
                     SQ[sq_tail].trace_vaddr<=trace_vaddr;
@@ -97,38 +105,43 @@ module store_queue #(parameter int SQ_SIZE=8)(
         end
     end
 
-    logic [47:0] search_vaddr;
-    logic [SQ_SIZE-1:0] match_result;
     logic [SQ_SIZE-1:0] curr_unresolved;
-    logic [SQ_SIZE-1:0] stopping_values;
-    assign stopping_values= curr_unresolved|match_result;
+    logic [SQ_SIZE-1:0] current_store_mask;
+    logic [SQ_SIZE-1:0] curr_entries;
+    logic [SQ_SIZE-1:0] match_result;
+    
     genvar i;
     generate
     for (i=0;i<SQ_SIZE;i++) begin: match_addresses
-        assign match_result[i] = curr_entries[i]&(SQ[i].trace_vaddr==search_vaddr)&(load_age-SQ[i].age<16);
+        assign match_result[i] = curr_entries[i]&(load_age-SQ[i].age<16)&(SQ[i].trace_vaddr==search_addr);
         assign curr_unresolved[i] = curr_entries[i]&(!SQ[i].trace_vaddr_is_valid|!SQ[i].trace_value_is_valid);
-        assign tag_matching[i] = SQ[i].trace_id==trace_id;
+        assign tag_matching[i] = curr_entries[i]&(SQ[i].trace_id==trace_id);
     end
     endgenerate
 
-    logic [SQ_SIZE-1:0] current_store_mask;
     assign current_store_mask = match_result|curr_unresolved;
-
-    integer value_index;
-    always_latch begin
+    always_comb begin
+        logic [$clog2(SQ_SIZE)-1:0] value_index;
+        int result;
         found = current_store_mask!={SQ_SIZE{1'b0}};
         if(found) begin
             if(sq_head<sq_tail) begin
-                value_index=$clog2(current_store_mask);
+                result=$clog2({1'b0,current_store_mask}+1)-1;
             end else begin
                 if ((current_store_mask&tailmask)!={SQ_SIZE{1'b0}}) begin
-                    value_index=$clog2(current_store_mask&tailmask);
+                    result=$clog2({1'b0,current_store_mask&tailmask}+1)-1;
                 end else begin
-                    value_index=$clog2(current_store_mask);
+                    result=$clog2({1'b0,current_store_mask}+1)-1;
                 end
             end
+            value_index=result[$clog2(SQ_SIZE)-1:0];
             resolved = !curr_unresolved[value_index];
             search_value = SQ[value_index].trace_value;
+        end else begin
+            value_index=0;
+            resolved = 1'b0;
+            search_value=0;
+            result=0;
         end
     end
 endmodule
