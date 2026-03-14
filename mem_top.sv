@@ -98,7 +98,6 @@ module mem_top #(
     assign sq_search_addr = lq_sq_query_addr;
     assign sq_load_age = lq_sq_query_age;
 
-    // TODO: add load queue ready
     always_comb begin
         case (trace_op)
             OP_MEM_LOAD: trace_ready = lq_trace_ready;
@@ -207,7 +206,7 @@ module mem_top #(
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
-        .load_complete_valid(), // TODO: should these be used?
+        .load_complete_valid(), // TODO: should these be used? ans: yes! this is how we know the lq is putting out valid data from a load
         .load_complete_id(),
         .load_complete_data()
     );
