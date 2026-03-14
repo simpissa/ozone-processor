@@ -44,6 +44,7 @@ module mem_top #(
     logic trace_fire;
     logic [AGE_W-1:0] access_age;
 
+    logic lq_trace_ready;
     logic lq_trace_valid;
     logic [AGE_W-1:0] lq_trace_age;
 
@@ -100,7 +101,7 @@ module mem_top #(
     // TODO: add load queue ready
     always_comb begin
         case (trace_op)
-            OP_MEM_LOAD: trace_ready = 1'b1;
+            OP_MEM_LOAD: trace_ready = lq_trace_ready;
             OP_MEM_STORE: trace_ready = sq_ready_out;
             OP_MEM_RESOLVE: trace_ready = 1'b1;
             OP_TLB_FILL: trace_ready = tlb_fill_ready;
@@ -145,7 +146,15 @@ module mem_top #(
         end
     end
 
-    // lq and sq communication, not sure if im doing this right
+    /* 
+    TODO: pretty sure this isn't right, forward valid is used to 
+    determine when the forwarding data is valid (an older store
+    to the same EA was found), conflict is used when an older 
+    store to an unresolved EA was found, and miss means no store
+    to the same EA was found. these should all be set by the sq.
+    haven't looked at sq, but if those exist i can set this up later. 
+    */
+    
     always_comb begin
         lq_sq_forward_valid = 1'b0;
         lq_sq_forward_data = sq_search_value;
@@ -176,6 +185,7 @@ module mem_top #(
     ) lq (
         .clk(clk),
         .reset(rst),
+        .trace_ready(lq_trace_ready),
         .trace_valid(lq_trace_valid),
         .trace_op(trace_op),
         .trace_id(trace_id),

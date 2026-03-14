@@ -8,12 +8,14 @@ module load_queue #(
     input  logic         reset,
 
     // Incoming trace operations
+    
     input  logic         trace_valid,
     input  logic [2:0]   trace_op,
     input  logic [ID_W-1:0]   trace_id,
     input  logic [47:0]  trace_vaddr,
     input  logic         trace_vaddr_is_valid,
     input  logic [ID_W:0] trace_age,
+    output logic         trace_ready,
 
     // Interface to Store Queue (for dependency checking / forwarding)
     output logic         sq_query_valid,
@@ -46,7 +48,6 @@ localparam IDX_W = $clog2(LQ_SIZE);
 localparam INVALID_IDX = LQ_SIZE;
 localparam N_TRACES = 1 << ID_W;
 
-// TODO: add "ROB idx" (count # of traces) to store relative age
 typedef struct packed {
     logic valid;
     logic [ID_W-1:0] id;
@@ -89,6 +90,8 @@ logic issue_cache;
 logic found_issue;
 logic [IDX_W-1:0] next_issue_idx;
 logic [IDX_W-1:0] issue_idx;
+
+assign trace_ready = !queue[tail].valid;
 
 /* initialize everything important to 0 */
 initial begin
@@ -141,13 +144,10 @@ always_ff @(posedge clk) begin
         load_complete_valid <= 0;
 
         waiting_issue <= 1;
-
     end
     
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
-
-        // $display("trace is valid");
 
         trace_collected <= 0;
 
