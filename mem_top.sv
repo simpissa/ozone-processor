@@ -193,7 +193,7 @@ module mem_top #(
         .trace_age(lq_trace_age),
         .sq_query_valid(lq_sq_query_valid),
         .sq_query_addr(lq_sq_query_addr),
-        .sq_query_id(lq_sq_query_id),
+        .sq_query_id(lq_sq_query_id), // TODO: currently unused, i think the sq should take this as input?
         .sq_query_age(lq_sq_query_age),
         .sq_forward_valid(lq_sq_forward_valid),
         .sq_forward_data(lq_sq_forward_data),
