@@ -206,8 +206,11 @@ module mem_top #(
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
-        .load_complete_valid(), // TODO: should these be used? ans: yes! this is how we know the lq is putting out valid data from a load
+        .load_complete_valid(), // TODO: should these be used? ans: i think so but am less confident, this is how we know the lq is putting out valid data from a load
                                 // right, these 3 would be used normally, but I think for this assignment only stores need to be communicated to the HPS, lmk if im misunderstanding
+
+                                // based on the trace logs, the loads have some sort of value associated with them, but im not sure what the purpose is. but i assume there has to be
+                                // some way to test if loads are working? 
         .load_complete_id(),
         .load_complete_data()
     );

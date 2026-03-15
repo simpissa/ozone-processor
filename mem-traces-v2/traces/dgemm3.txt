@@ -1,0 +1,6 @@
+Finished DGEMM.
+Address of matrix C: 0x7ffe65128200
+Matrix C (3x3):
+Row  0:   0.0028   0.0078   0.0064 
+Row  1:   0.0034   0.0028   0.0022 
+Row  2:   0.0048   0.0040   0.0032 
