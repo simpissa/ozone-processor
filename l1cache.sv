@@ -1,5 +1,5 @@
-module load_queue #(
-	parameter int VADDR_W = 48,
+module l1cache #(
+  parameter int VADDR_W = 48,
   parameter int PADDR_W = 30,
   parameter int BLOCK_SIZE = 64,
   parameter int NUM_WAYS = 2,
@@ -28,12 +28,12 @@ module load_queue #(
   // BLOCK_SIZE * WAYS * SETS
   // Sets = CAPACITY / BLOCK_SIZE / WAYS
   typedef struct packed {
-    logic [BLOCK_SIZE*8-1:0] data[NUM_WAYS-1:0];
+    logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
     logic lru;
   } data_arr_set;
 
   typedef struct packed {
-    logic [PADDR_W-$clog2(CAPACITY)-1:0] data[NUM_WAYS-1:0];
+    logic [NUM_WAYS-1:0][PADDR_W-$clog2(CAPACITY)-1:0] data;
     logic lru;
   } tag_arr_set;
 
@@ -52,7 +52,10 @@ module load_queue #(
 
   logic stage1_type; // 0 load 1 store
   logic stage2_type;
-
+  
+  // TODO needed to add this to compile, you should make sure its right
+  // the width is especially not correct, given that its hard coded
+  logic [20:0] stage2_paddr_tag;
   logic[PADDR_W-1:0] stage2_tlb_paddr;
   logic[PADDR_W*NUM_WAYS-1:0] stage2_tlb_paddr_expanded;
   logic[NUM_WAYS-1:0] stage2_tag_comps;
@@ -63,10 +66,10 @@ module load_queue #(
 
 
   always_ff @(posedge clk) begin
-    
+
     if(reset) begin
-      data_arr <= 0;
-      tag_arr <= 0;
+      data_arr <= '{default: 0};
+      tag_arr <= '{default: 0};
       stage1_data_set <= 0;
       stage1_tag_set <= 0;
       stage2_data_set <= 0;
@@ -85,10 +88,11 @@ module load_queue #(
         cache_index_bits = v_addr[$clog2(CAPACITY)-1:0];
 
         block_offset = cache_index_bits[$clog2(BLOCK_SIZE)-1:0];
-        set_index = cache_index_bits[$clog2(CAPACITY)-1:$clog2(BLOCK_SIZE)];
+        set_index = cache_index_bits[$clog2(CAPACITY)-1:$clog2(BLOCK_SIZE)]; 
 
-        stage1_data_set <= data_arr[set_index];
-        stage1_tag_set <= tag_arr[set_index];
+        // TODO fix this, gave an error that it needs 2 bit index not 3, but the way i am fixing it is most certainly incorrect
+        stage1_data_set <= data_arr[set_index[1:0]];
+        stage1_tag_set <= tag_arr[set_index[1:0]];
 
 
         // Send virtual page number to tlb (send whole addr for now)
@@ -139,7 +143,7 @@ module load_queue #(
         if(stage2_type == 0) begin
           data_out <= stage2_data_set.data[stage2_tag_comps][63:0];
         end else begin
-          data_arr[] <= 
+          // data_arr[] <=
         end
       end
 

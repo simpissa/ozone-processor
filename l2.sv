@@ -12,7 +12,7 @@ module l2cache (
     input logic [29:0] l1_req_paddr,
     input logic [511:0] l1_req_data,
     output logic l1_resp_valid,
-    output logic [511:0] l1_resp_data,
+    output logic [511:0] l1_resp_data //, 
 
     //TODO: l2 to dram
     //idk how i'm meant to write this tbh i think on the fpga it's gonna be mmio to the device
@@ -45,7 +45,7 @@ module l2_cache_array #(
     parameter S = 16, 
     parameter A = 4,
     parameter B = 64,
-    parameter C = 4096,
+    parameter C = 4096
 )(
     input logic clk_in,
 
@@ -54,9 +54,12 @@ module l2_cache_array #(
     //source: https://www.chipverify.com/systemverilog/systemverilog-arrays
     input logic [3:0] r_index,
     output logic [19:0] r_tag[(A-1):0],
-    output logic [(B*8-1)-1:0] r_data[(A-1):0],
+
+    // TODO changed this from [(B*8-1)-1:0] to [(B*8-1):0] because it was too short
+    // check if this is right
+    output logic [(B*8-1):0] r_data[(A-1):0],
     output logic r_valid[(A-1): 0],
-    output logic r_dirty[(A-1: 0)],
+    output logic r_dirty[(A-1): 0],
 
     //write signals
     input logic w_mode,
@@ -90,8 +93,11 @@ module l2_cache_array #(
         for(int w = 0; w < A; w++) begin
             r_tag[w] = tags[r_index][w];
             r_data[w] = data[r_index][w];
-            r_valid[w] = valid[r_index][w];
-            r_dirty[w] = valid[r_imdex][w];
+
+            // TODO this was originally valid[][], changed it so it would compile.
+            // make sure that this is correct before deleting this
+            r_valid[w] = valids[r_index][w];
+            r_dirty[w] = valids[r_index][w];
         end
     end
 endmodule
@@ -106,7 +112,7 @@ module l2_lru #(
     input logic [3:0] update_index,
     input logic [1:0] update_way,
     input logic [3:0] query_index,
-    output logic [1:0] victim,
+    output logic [1:0] victim
 );
 
     logic [2:0] tree [(S-1):0];
@@ -133,6 +139,7 @@ module l2_lru #(
 endmodule
 
 //mshr slide is mem5.6 slide 12
+/*
 module l2_mshr #(
     parameter 
 )(
@@ -141,3 +148,5 @@ module l2_mshr #(
 );
 
 endmodule
+
+*/

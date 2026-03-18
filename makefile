@@ -12,3 +12,7 @@ test-load: loadq
 
 test-tlb: tlb
 	obj_dir/Vtlb
+
+top: tlb.sv l1cache.sv l2.sv storeq.sv loadq.sv mem_top.sv
+	verilator --assert --binary --top-module mem_top \
+	mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
