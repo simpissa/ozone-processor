@@ -12,6 +12,12 @@ module mem_top #(
     input logic clk,
     input logic rst,
 
+    // I think the best way to do dram is to take as an input to mem_top?
+    // That way it should get set in the fpga memory as the addr at 0x20000000 or whatever it is
+    // can else test it easily by creating this segment 
+    // this can just get plugged into the l2
+    input logic [63:0] dram [0:1<<20],
+
     // raw trace from HPS
     input logic trace_valid,
     output logic trace_ready,
@@ -145,15 +151,6 @@ module mem_top #(
         end
     end
 
-    /* 
-    TODO: pretty sure this isn't right, forward valid is used to 
-    determine when the forwarding data is valid (an older store
-    to the same EA was found), conflict is used when an older 
-    store to an unresolved EA was found, and miss means no store
-    to the same EA was found. these should all be set by the sq.
-    haven't looked at sq, but if those exist i can set this up later. 
-    */
-    
     always_comb begin
         lq_sq_forward_valid = 1'b0;
         lq_sq_forward_data = sq_search_value;

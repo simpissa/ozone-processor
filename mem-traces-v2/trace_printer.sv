@@ -13,21 +13,30 @@ module trace_printer;
     byte buffer [0:15];
     logic [127:0] trace_line;
 
+    op_e trace_op;
+    logic [3:0] trace_id;
+    logic [47:0] trace_vaddr;
+    logic trace_vaddr_is_valid;
+    logic [29:0] trace_tlb_paddr;
+    logic [63:0] trace_value;
+    logic trace_value_is_valid;
+
     // Map bytes to the logic vector (Little Endian: buffer[0] is bits 7:0)
     always_comb begin
+        $display("Hello!");
         for (int i = 0; i < 16; i++) begin
             trace_line[i*8 +: 8] = buffer[i];
         end
     end
 
     // Wire up the fields based on the spec
-    op_e          trace_op             = op_e'(trace_line[54:52]);
-    logic [3:0]   trace_id             = trace_line[51:48];
-    logic [47:0]  trace_vaddr          = trace_line[47:0];
-    logic         trace_vaddr_is_valid = trace_line[55];
-    logic [29:0]  trace_tlb_paddr      = trace_line[85:56];
-    logic [63:0]  trace_value          = trace_line[119:56];
-    logic         trace_value_is_valid = trace_line[120];
+    assign trace_op             = op_e'(trace_line[54:52]);
+    assign trace_id             = trace_line[51:48];
+    assign trace_vaddr          = trace_line[47:0];
+    assign trace_vaddr_is_valid = trace_line[55];
+    assign trace_tlb_paddr      = trace_line[85:56];
+    assign trace_value          = trace_line[119:56];
+    assign trace_value_is_valid = trace_line[120];
 
     int fd;
     int count = 0;
@@ -45,6 +54,8 @@ module trace_printer;
             $finish;
         end
 
+        $display("opened trace file");
+
         $display("\nReading trace from: %s", filename);
         $display("------------------------------------------------------------------------------------------------------------------");
         $display("%-10s | %-3s | %-14s | %-2s | %-18s | %-3s | %-10s",
@@ -53,6 +64,8 @@ module trace_printer;
 
         while ($fread(buffer, fd) == 16) begin
             #1; // Allow always_comb to propagate
+
+            $display("%d", buffer[0]);
 
             case (trace_op)
                 OP_MEM_LOAD:    op_name = "LOAD";
@@ -72,14 +85,9 @@ module trace_printer;
                 $display("");
 
             count++;
-
+            
             if (count >= 100) begin
                 $display("... (Trace continues, truncated at 100 lines) ...");
-                break;
-            end
-        end
-
-        $display("------------------------------------------------------------------------------------------------------------------");
         $display("Read %0d records.", count);
         $fclose(fd);
         $finish;

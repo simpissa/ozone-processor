@@ -22,10 +22,10 @@ module load_queue #(
     output logic [47:0]  sq_query_addr,
     output logic [3:0]   sq_query_id,
     output logic [ID_W:0] sq_query_age,
-    input  logic         sq_forward_valid,
+    input  logic         sq_forward_valid, 
     input  logic [63:0]  sq_forward_data,
     input  logic         sq_conflict,
-    input  logic         sq_miss, // use this so the sq can tell us they didn't find anything
+    input  logic         sq_miss,
 
     // Request to L1 data cache
     output logic         l1_req_valid,
@@ -64,7 +64,7 @@ typedef enum logic [2:0] {
     OP_MEM_LOAD    = 0, // perform memory load
     OP_MEM_STORE   = 1, // shouldn't need
     OP_MEM_RESOLVE = 2, // resolve vaddr
-    OP_TLB_FILL    = 4  // shouldn't need (unless we drive the tlb?)
+    OP_TLB_FILL    = 4  // shouldn't need
 } op_code;
 
 logic [IDX_W-1:0] head;
@@ -77,9 +77,7 @@ logic [IDX_W:0] id_map [0:N_TRACES-1];
 lq_entry queue [0:LQ_SIZE-1];
 
 // misc logic
-logic trace_collected;
 logic sq_had_miss;
-
 
 // stages
 logic waiting_issue;
@@ -107,7 +105,6 @@ initial begin
     tail = 0;
     issue_storeq = 0;
     issue_cache = 0;
-    trace_collected = 0;
     waiting_issue = 1;
     sq_query_valid = 0;
     l1_req_valid = 0;
@@ -137,7 +134,6 @@ always_ff @(posedge clk) begin
         issue_storeq  <= 0;
         issue_cache   <= 0;
         sq_had_miss <= 0;
-        trace_collected <= 0;
 
         sq_query_valid <= 0;
         l1_req_valid <= 0;
@@ -149,21 +145,12 @@ always_ff @(posedge clk) begin
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
 
-        trace_collected <= 0;
-
         if (trace_op == OP_MEM_LOAD) begin
-
-            // $display("op is mem load");
-            
             // check if queue is full
             // if tail == head, then valid bit on queue head tells us if its full or empty
             // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
             if (tail != head || !queue[head].valid) begin
                 assert(!queue[tail].valid);
-
-                // $display("we are here");
-
-                trace_collected <= 1;
 
                 id_map[trace_id] <= { 1'b0, tail };
 
@@ -182,8 +169,6 @@ always_ff @(posedge clk) begin
         end else if (trace_op == OP_MEM_RESOLVE) begin
             assert(trace_vaddr_is_valid);
 
-            trace_collected <= 1;
-            
             // do we actually have something for this trace_id, or is it just for a store?
             if (id_map[trace_id] != INVALID_IDX) begin
                 assert(queue[id_map[trace_id][IDX_W-1:0]].valid);
@@ -201,11 +186,8 @@ always_ff @(posedge clk) begin
 
     if (waiting_issue) begin
 
-        // $display("waiting issue correct");
-        
         if (found_issue) begin
-
-            // $display("found_issue correct");
+            $display("Loadq status: Issuing request to storeq");
 
             assert(queue[next_issue_idx].valid);
             assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
@@ -228,8 +210,6 @@ always_ff @(posedge clk) begin
 
 
     if (issue_storeq) begin
-        // we issued to the storeq, waiting for a response
-        
         if (sq_miss || sq_had_miss) begin
             sq_had_miss <= 1;
             // no data to forward, so query the cache
@@ -242,6 +222,7 @@ always_ff @(posedge clk) begin
                 l1_req_valid <= 1;
                 issue_cache  <= 1;
                 issue_storeq <= 0;
+                $display("Loadq Status: request sent to l1");
             end
 
             sq_query_valid <= 0;

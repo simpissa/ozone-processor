@@ -11,6 +11,7 @@ logic [3:0] trace_id;
 logic [47:0] trace_vaddr;
 logic trace_vaddr_is_valid;
 logic [4:0] trace_age;
+logic trace_ready;
 
 logic sq_query_valid;
 logic [47:0] sq_query_addr;
@@ -43,6 +44,7 @@ load_queue #(.LQ_SIZE(8), .ID_W(4)) lq (
     .trace_vaddr(trace_vaddr),
     .trace_vaddr_is_valid(trace_vaddr_is_valid),
     .trace_age(trace_age),
+    .trace_ready(trace_ready),
     .sq_query_valid(sq_query_valid),
     .sq_query_addr(sq_query_addr),
     .sq_query_id(sq_query_id),
@@ -293,7 +295,7 @@ initial begin
     $display("Testing non-add to a full queue");
 
     // Test to make sure we don't overwrite with a full queue
-
+    assert(trace_ready);
     for (int i = 0; i < 8; ++i) begin
         trace_id = 4'(i + 2);
         trace_vaddr = i * 10;
@@ -303,6 +305,7 @@ initial begin
     end
 
     trace_valid = 0;
+    assert(!trace_ready);
 
     // This test was visually inspected
 
