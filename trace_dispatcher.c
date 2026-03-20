@@ -14,6 +14,7 @@
 typedef unsigned __int128 u128;
 
 static const char *TRACE_FILE = "mem-traces-v2/mem-traces-v2/traces/dgemm3_lsq88_real.bin";
+// log of all store commits; we can also log loads but they're not needed for architectural state
 static const char *COMMIT_LOG = "trace_commits.log";
 
 #define BRIDGE_BASE 0xC0000000
