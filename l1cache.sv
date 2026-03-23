@@ -58,6 +58,7 @@ module l1cache #(
     logic[$clog2(NUM_SETS)-1:0] set_index;
     logic valid;
     logic is_store;
+    logic[ID_LENGTH-1:0] instr_id;
   } stage2_info;
 
   typedef struct packed {
@@ -72,6 +73,7 @@ module l1cache #(
     logic miss;
     logic valid;
     logic is_store;
+    logic[ID_LENGTH-1:0] instr_id;
   } stage3_info;
 
   data_arr_set data_arr[NUM_SETS-1:0];
@@ -89,7 +91,9 @@ module l1cache #(
 
   // TODO SET ALL TO DEFAULT
   initial begin 
-
+    // TODO initialize all data to 0
+    // data_arr = 0;
+    // tag_arr = 0;
   end
 
   /**
@@ -109,7 +113,6 @@ module l1cache #(
 
   end
 
-  // TODO Decide if pipeline stays valid or invalid during blockage
   /*
   / Stage 2 Pipeline
   */
@@ -123,6 +126,11 @@ module l1cache #(
       stage2.store_data <= store_data;
       stage2.valid <= is_valid;
       stage2.is_store <= storeValid;
+      if(storeValid) begin
+        stage2.instr_id <= store_id;
+      end else begin
+        stage2.instr_id <= load_id;
+      end
     end else begin
       stage2.valid <= 1'b0;
     end
@@ -178,6 +186,7 @@ module l1cache #(
       stage3.way_store_index <= way_index;
       stage3.set_index <= stage2.set_index;
       stage3.block_offset <= stage2.block_offset;
+      stage3.instr_id <= stage2.instr_id;
     end else begin
       stage3.valid <= 1'b0;
     end
@@ -189,6 +198,7 @@ module l1cache #(
   logic mshr_store_valid; // If outputs are valid
   logic mshr_load_valid;
   logic[63:0] mshr_data_out; // store output
+  logic[$clog2(BLOCK_SIZE)-1:0] mshr_offset; // Corresponding block offset
 
   mshr #(.NUM_ENTRYS(NUM_MSHRS),
         .QUEUE_SIZE(MSHR_QUEUE_SIZE),
@@ -200,7 +210,7 @@ module l1cache #(
           .clk(clk),
           .store_data(stage3.store_data),
           .paddr(stage3.paddr),
-          .id_in(), //TODO take id
+          .id_in(stage3.instr_id),
           .miss(stage3.miss),
           .valid(stage3.valid),
           .l2_completed(l2_data_valid),
@@ -211,12 +221,11 @@ module l1cache #(
           .load_id_out(mshr_load_id),
           .write_out(mshr_data_out),
           .load_valid(mshr_load_valid),
-          .store_valid(mshr_store_valid)
+          .store_valid(mshr_store_valid),
+          .offset_out(mshr_offset)
         );
 
   assign miss_result = stage3.miss;
-
-  // logic 
 
   always_comb begin
     data_valid = 1'b0;
@@ -241,8 +250,23 @@ module l1cache #(
   always_ff @(posedge clk) begin
     // Update cache with normal state if not updating with l2
     // l2 should take priority with updating if on a miss, use mshr to determine
-    if(~l2_data_valid & stage3.valid & ~stage3.miss & ~l2_data_valid & stage3.is_store) begin
+    if(l2_data_valid) begin
+      // Bring in the data into the cache, have seperate logic for outputting instrs
+      // from mshr
+      // lru way 0, evict and make 1 lru
+      if(tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru == 1'b0) begin
+        data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b0] <= l2_data_in;
+      end else begin
+        data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b1] <= l2_data_in;
+      end
+    end else if(stage3.valid & ~stage3.miss & ~l2_data_valid & stage3.is_store) begin
         data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
+    end
+
+    if(mshr_load_valid) begin
+
+    end else if(mshr_store_valid) begin
+
     end
   end
 endmodule
@@ -265,10 +289,12 @@ module mshr#(
   input logic l2_completed,
   input logic[PADDR_W-1:0] l2_paddr,
   input logic is_store,
+
   output logic stall,
   output logic[ID_SIZE-1:0] store_id_out,
   output logic[ID_SIZE-1:0] load_id_out,
   output logic[DATA_SIZE-1:0] write_out,
+  output logic[OFFSET_SIZE-1:0] offset_out,
   output logic load_valid,
   output logic store_valid
 );
@@ -286,7 +312,8 @@ module mshr#(
     logic occupied;
     logic[$clog2(QUEUE_SIZE)-1:0] head;
     logic[$clog2(QUEUE_SIZE)-1:0] tail;
-    logic[$clog2(QUEUE_SIZE)-1:0] count;
+    logic[$clog2(QUEUE_SIZE):0] count;
+    logic should_drain;
   } mshr_entry;
 
   mshr_entry[NUM_ENTRYS-1:0] entries;
@@ -298,7 +325,12 @@ module mshr#(
   logic l2_match_made;
   logic[$clog2(NUM_ENTRYS)-1:0] l2_match_index;
 
+  // Global draining and drain entry index
   logic draining;
+  logic[$clog2(NUM_ENTRYS)-1:0] drain_index;
+  logic[$clog2(NUM_ENTRYS)-1:0] wanted_drain_index;
+  logic[$clog2(NUM_ENTRYS)-1:0] theorized_drain_index;
+  logic theorized_drain_index_valid;
 
   // Check to see if the entry exists.
   // If it does, check if queue full
@@ -313,6 +345,9 @@ module mshr#(
     match_index = 0;
     l2_match_made = 1'b0;
     l2_match_index = 0;
+    wanted_drain_index = 0;
+    theorized_drain_index = 0;
+    theorized_drain_index_valid = 1'b0;
     for(int i = 0; i < NUM_ENTRYS; i++) begin
       if(~entries[i].occupied) begin 
         entry_open = 1'b1;
@@ -324,25 +359,31 @@ module mshr#(
         match_index = ($clog2(NUM_ENTRYS))'(i);
       end
 
+      // Used to set the drain index
       if(entries[i].occupied && entries[i].address == {l2_paddr[PADDR_W-1:$clog2(BLOCK_SIZE)], {($clog2(BLOCK_SIZE)){1'b0}}}) begin
         l2_match_made = 1'b1;
         l2_match_index = ($clog2(NUM_ENTRYS))'(i);
       end
+
+      if(entries[i].occupied && entries[i].should_drain && ($clog2(NUM_ENTRYS))'(i) != drain_index) begin
+        theorized_drain_index = ($clog2(NUM_ENTRYS))'(i);
+        theorized_drain_index_valid = 1'b1;
+      end
     end
 
-    load_valid = ~entries[match_index].queue[entries[match_index].head].is_store & draining;
-    store_valid = entries[match_index].queue[entries[match_index].head].is_store & draining;
+    load_valid = ~entries[drain_index].queue[entries[drain_index].head].is_store & draining;
+    store_valid = entries[drain_index].queue[entries[drain_index].head].is_store & draining;
 
-    // Drain if l2 is done, stop draining when queue empty
-    // TODO Commented out to compile but need to have a drain state 
-    // for the entrys that begin clearing out the entrys. Since we only
-    // have one output port id assume we only have 1 global drain state
-    // draining = draining;
-    // if(l2_completed) begin
-    //   draining = 1'b1;
-    // end else if(draining && (entries[l2_match_index].count == 0)) begin
+    load_id_out  = entries[drain_index].queue[entries[drain_index].head].id;
+    store_id_out = entries[drain_index].queue[entries[drain_index].head].id;
+    write_out    = entries[drain_index].queue[entries[drain_index].head].store_val;
+    offset_out   = entries[drain_index].queue[entries[drain_index].head].block_offset;
 
-    // end
+    if(l2_completed && ~draining) begin
+      wanted_drain_index = l2_match_index;
+    end else if(draining && (entries[drain_index].count == 0)) begin
+      wanted_drain_index = theorized_drain_index;
+    end
   end
 
   always_ff @(posedge clk) begin
@@ -355,6 +396,11 @@ module mshr#(
       // technically no clearing has to be done just move head
       entries[l2_match_index].head <= entries[l2_match_index].head + 1;
       entries[l2_match_index].count <= entries[l2_match_index].count - 1;
+      if(~draining) begin 
+        draining <= 1'b1;
+        drain_index <= wanted_drain_index;
+        entries[wanted_drain_index].should_drain <= 1'b1;
+      end
     end else if(miss && valid) begin
       if(match_made) begin  // Secondary miss
         entries[match_index].queue[entries[match_index].tail].is_store <= is_store;
@@ -373,6 +419,19 @@ module mshr#(
         entries[entry_index].head <= 0;
         entries[entry_index].tail <= 1;
       end else begin  // Stall
+      end
+    end
+
+    if(draining) begin
+      if(entries[drain_index].count == 0) begin
+        if(theorized_drain_index_valid) begin
+          drain_index <= theorized_drain_index;
+        end else begin
+          draining <= 1'b0;
+        end
+      end else begin  // Continue draining
+        entries[l2_match_index].head <= entries[l2_match_index].head + 1;
+        entries[l2_match_index].count <= entries[l2_match_index].count - 1;
       end
     end
   end
