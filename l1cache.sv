@@ -28,6 +28,9 @@ module l1cache #(
   input logic[BLOCK_SIZE*8-1:0] l2_data_in,
   input logic l2_data_valid,
   input logic[PADDR_W-1:0] l2_paddr,
+  output logic[BLOCK_SIZE*8-1:0] l2_write_back,
+  output logic l2_write_back_valid,
+
   // tlb params
   input logic[PADDR_W-1:0] tlb_paddr_in,
   input logic tlb_paddr_ready,
@@ -42,6 +45,7 @@ module l1cache #(
     logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
   } data_arr_set;
 
+  // TODO NUM_TAGS IN LINE IS BLOCK_SIZE / DATA_SIZE
   typedef struct packed {
     logic [NUM_WAYS-1:0][TAG_SIZE-1:0] data;
     logic valid;
@@ -139,6 +143,7 @@ module l1cache #(
   /*
   / Stage 2
   */
+  // TODO Verify tag logic i think there should be more tag bits
   logic[TAG_SIZE-1:0] paddr_tag;
   logic[NUM_WAYS-1:0] tag_comps;
   // Select data and tag to be passed onto the next stage
@@ -193,10 +198,9 @@ module l1cache #(
   end
 
   logic should_stall_mshr;  // mshr full or busy
-  logic[ID_LENGTH-1:0] mshr_store_id; // id for instruciton being fulfilled
-  logic[ID_LENGTH-1:0] mshr_load_id;
-  logic mshr_store_valid; // If outputs are valid
-  logic mshr_load_valid;
+  logic[ID_LENGTH-1:0] mshr_id; // id for instruciton being fulfilled
+  logic mshr_out_valid; // If outputs are valid
+  logic mshr_is_store_out;
   logic[63:0] mshr_data_out; // store output
   logic[$clog2(BLOCK_SIZE)-1:0] mshr_offset; // Corresponding block offset
 
@@ -217,32 +221,55 @@ module l1cache #(
           .l2_paddr(l2_paddr),
           .is_store(stage3.is_store),
           .stall(should_stall_mshr),
-          .store_id_out(mshr_store_id),
-          .load_id_out(mshr_load_id),
+          .id_out(mshr_store_id),
           .write_out(mshr_data_out),
-          .load_valid(mshr_load_valid),
-          .store_valid(mshr_store_valid),
-          .offset_out(mshr_offset)
+          .output_valid(mshr_out_valid),
+          .offset_out(mshr_offset),
+          .is_store_out(mshr_is_store_out)
         );
 
   assign miss_result = stage3.miss;
+  assign stage3_blocked = should_stall_mshr;
+
+  /*
+  Wanted logic: 
+    If l2 sends data, store it to the cache
+    If the mshr has a load at the address start outputting data corresponding to the mshr
+    If not, the output hits/load new things into the mshr
+    the 3rd stage will get stalled if the mshr is pushing data or the mshrs are full and there is another miss
+    loads can immediately be handled due to the stage 2 data pipe selection
+    stores have an extra flipflop to store the value in
+    l2 must get sent dirty data that is evicted for ram writeback
+    l2 receives what address we received and if it missed
+    l2 must provide us with the tag array as well to fill in
+  */
+
+  // TODO When we receive l2 data, should we wait for MSHR to output all the instructions to us, 
+  //      or do we write all stores into a buffer in the mshr and instantly write all stores to the
+  //      cache.
+  //      On another note, should we let each mshr store a whole cache line so they can each work
+  //      on a cache line at a time or do we leave that up to l1? We could also have 1 working
+  //      cache line register that we load each respective mshr data into when received.
 
   always_comb begin
     data_valid = 1'b0;
     data_out = stage3.data;
-    if(l2_data_valid) begin
-      // pop mshrs and update cache or send data
-      data_out = l2_data_in[stage3.block_offset * 8 +:64];
-    end else if(stage3.miss & stage3.valid) begin 
-      // push into mshr and send out to l2
-      // Stall if mshr queue is full
-    end else if(stage3.valid) begin 
-      // update cache or send out data
-      if(stage3.is_store) begin
-        // Update cache
+    if(mshr_out_valid) begin
+      if(mshr_is_store_out) begin
+        // Store here if we want to dispense entire queue here
       end else begin
-        data_valid = 1'b1;
+        // Output load here, loads must be done one at a time since their pins need output
+        // We can do 1 at a time because regardless all instruciton id completions must be sent out
       end
+    end else if(stage3.valid & ~stage3.miss) begin 
+      // Output hit
+      if(~stage3.is_store) begin
+        // Presumably only handle loads since stores are handled in ff
+      end
+    end else if(stage3.valid) begin 
+      // MSHR modules auto handle the miss, l2 should be sent required miss data
+    end else begin
+      // Presumably output invalid because the stage is invalid and no other data is available out
     end
   end
   
@@ -254,23 +281,27 @@ module l1cache #(
       // Bring in the data into the cache, have seperate logic for outputting instrs
       // from mshr
       // lru way 0, evict and make 1 lru
+      // TODO need to add dirty bit logic
+      // Tag array should be updated by each tag of the incoming data
+      // Just grab upper bits of the l2 paddr and put them into the tag array
+      // We can do the lru selection logic in an always comb and operate on it in here
       if(tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru == 1'b0) begin
         data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b0] <= l2_data_in;
+        // IF(DIRTY): SEND TO L2
+        tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru <= 1'b1
       end else begin
         data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b1] <= l2_data_in;
+        // IF(DIRTY): SEND TO L2
+        tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru <= 1'b0
+      tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].dirty <= 1'b0
       end
     end else if(stage3.valid & ~stage3.miss & ~l2_data_valid & stage3.is_store) begin
         data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
     end
-
-    if(mshr_load_valid) begin
-
-    end else if(mshr_store_valid) begin
-
-    end
   end
 endmodule
 
+// TODO MSHR Should feed loads forward if same offset
 module mshr#(
   parameter int NUM_ENTRYS = 2,
 	parameter int QUEUE_SIZE = 4,
@@ -291,12 +322,11 @@ module mshr#(
   input logic is_store,
 
   output logic stall,
-  output logic[ID_SIZE-1:0] store_id_out,
-  output logic[ID_SIZE-1:0] load_id_out,
+  output logic[ID_SIZE-1:0] id_out,
   output logic[DATA_SIZE-1:0] write_out,
   output logic[OFFSET_SIZE-1:0] offset_out,
-  output logic load_valid,
-  output logic store_valid
+  output logic output_valid,
+  output logic is_store_out
 );
 
   typedef struct packed {
@@ -331,6 +361,8 @@ module mshr#(
   logic[$clog2(NUM_ENTRYS)-1:0] wanted_drain_index;
   logic[$clog2(NUM_ENTRYS)-1:0] theorized_drain_index;
   logic theorized_drain_index_valid;
+
+  assign stall = draining;
 
   // Check to see if the entry exists.
   // If it does, check if queue full
@@ -371,14 +403,6 @@ module mshr#(
       end
     end
 
-    load_valid = ~entries[drain_index].queue[entries[drain_index].head].is_store & draining;
-    store_valid = entries[drain_index].queue[entries[drain_index].head].is_store & draining;
-
-    load_id_out  = entries[drain_index].queue[entries[drain_index].head].id;
-    store_id_out = entries[drain_index].queue[entries[drain_index].head].id;
-    write_out    = entries[drain_index].queue[entries[drain_index].head].store_val;
-    offset_out   = entries[drain_index].queue[entries[drain_index].head].block_offset;
-
     if(l2_completed && ~draining) begin
       wanted_drain_index = l2_match_index;
     end else if(draining && (entries[drain_index].count == 0)) begin
@@ -386,22 +410,25 @@ module mshr#(
     end
   end
 
+  assign id_out = entries[drain_index].queue[entries[drain_index].head].id;
+  assign write_out = entries[drain_index].queue[entries[drain_index].head].store_val;
+  assign offset_out = entries[drain_index].queue[entries[drain_index].head].block_offset;
+  assign output_valid = draining;
+  assign is_store_out = entries[drain_index].queue[entries[drain_index].head].is_store;
+
   always_ff @(posedge clk) begin
     // Handle match or open cases
     // Don't fill entry if l2 is done
     if(l2_completed) begin
-      // Clear queues until head==tail
-      // Need to differentiate between when the queue is empty and full
-      // Assume  match made, might have to add error checking later if it causes issues
-      // technically no clearing has to be done just move head
-      entries[l2_match_index].head <= entries[l2_match_index].head + 1;
-      entries[l2_match_index].count <= entries[l2_match_index].count - 1;
+      // Force the mshr into drain mode or update the next entry to drain
       if(~draining) begin 
         draining <= 1'b1;
         drain_index <= wanted_drain_index;
-        entries[wanted_drain_index].should_drain <= 1'b1;
       end
-    end else if(miss && valid) begin
+      entries[l2_match_index].should_drain <= 1'b1;
+    end 
+
+    if(miss && valid) begin
       if(match_made) begin  // Secondary miss
         entries[match_index].queue[entries[match_index].tail].is_store <= is_store;
         entries[match_index].queue[entries[match_index].tail].id <= id_in;
@@ -418,21 +445,24 @@ module mshr#(
         entries[entry_index].occupied <= 1'b1;
         entries[entry_index].head <= 0;
         entries[entry_index].tail <= 1;
+        entries[entry_index].count <= 1;
       end else begin  // Stall
       end
     end
 
     if(draining) begin
-      if(entries[drain_index].count == 0) begin
+      if(entries[drain_index].count == 1) begin
         if(theorized_drain_index_valid) begin
           drain_index <= theorized_drain_index;
         end else begin
           draining <= 1'b0;
         end
-      end else begin  // Continue draining
-        entries[l2_match_index].head <= entries[l2_match_index].head + 1;
-        entries[l2_match_index].count <= entries[l2_match_index].count - 1;
-      end
+        entries[drain_index].should_drain <= 1'b0;
+        entries[drain_index].occupied <= 1'b0;
+      end 
+
+      entries[drain_index].head <= entries[drain_index].head + 1;
+      entries[drain_index].count <= entries[drain_index].count - 1;
     end
   end
 
