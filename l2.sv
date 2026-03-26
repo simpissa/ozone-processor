@@ -57,7 +57,7 @@ module l2cache #(
 
     typedef struct packed {
         cache_line set [NUM_WAYS];
-        logic grid[NUM_WAYS][NUM_WAYS];
+        logic [NUM_WAYS-1:0][NUM_WAYS-1:0] grid;
         logic [$clog2(NUM_WAYS)-1:0] oldest;
         logic [NUM_WAYS-1:0] zero;
     } cache_set;
@@ -90,11 +90,14 @@ module l2cache #(
         logic [$clog2(NUM_WAYS)-1:0] cache_line_index;   // Index of corresponding cache line in cache set
     } mshr;
 
+    // Since SDRAM answers one at a time, assign MSHRs as circular buffer to avoid starvation
     mshr mshrs [NUM_MSHRS];
     logic [NUM_MSHRS-1:0] available_mshrs;
     logic [NUM_MSHRS-1:0] unavailable_mshrs;
     logic [NUM_MSHRS-1:0] drain_mhsrs;
-    logic [$clog2(NUM_MSHRS)-1:0] querying_mshr;
+    logic [$clog2(NUM_MSHRS)-1:0] head_mshr;    // MSHR entry currently being queried
+    logic [$clog2(NUM_MSHRS)-1:0] tail_mshr;
+    logic [$clog2(NUM_MSHRS)-1:0] current_drain_mshr;   // MSHR to drain
     assign available_mshrs = ~unavailable_mshrs;
 
 
@@ -111,17 +114,18 @@ module l2cache #(
     general_info stage4;
     logic cache_hit;
     logic [$clog2(NUM_WAYS)-1:0] cache_line_index;
+    logic pending_evict;    // 1 if waiting for cycle where can send evict store to SDRAM
 
     // Stage 3 info
     general_info stage3;
     cache_line relevant_set;    // Info of cache set corresponding to address
     logic [NUM_WAYS-1:0] tag_comparison;    // Compare tags against current stage3 info
-    logic [$clog2(NUM_WAYS)-1:0] forwarded_cache_line_index;// TODO
+    logic [$clog2(NUM_WAYS)-1:0] forwarded_cache_line_index;
     logic forwarded_valid;
     genvar k;
     generate
         for(k=0;k<NUM_WAYS;k++) begin:compare_tags
-            assign tag_comparison[k] = stage3.valid && stage3.tag == relevant_set.set[k].tag;
+            assign tag_comparison[k] = (relevant_set.set[k].valid||relevant_set.set[k].mshr) && stage3.tag == relevant_set.set[k].tag;
         end
     endgenerate
 
@@ -138,91 +142,110 @@ module l2cache #(
             cache <= 0;
             mshrs <= 0;
             unavailable_mshrs <= 0;
+            drain_mhsrs <= 0;
             stage1 <= 0;
             stage2 <= 0;
             stage3 <= 0;
             stage4 <= 0;
+            head_mshr <= 0;
+            tail_mshr <= 0;
+            current_drain_mshr <= 0;
+            pending_evict <= 1'b0;
         end else begin
             // Stage 5: output
             // Outputs to L1 cache should be assigned, assume L1 always able to receive data.
             // Stage 5 is just the outputs to L1 cache
 
             // Stage 4: update cache lines/MSHRs
+
+            // Update MSHR after receiving info from sdram
+            if(sdram_resp_valid) begin
+                mshrs[head_mshr].queue[0].data <= sdram_resp_rdata;
+                mshrs[head_mshr].writes[0] <= 1'b1;
+                mshrs[head_mshr].reads[0] <= 1'b0;
+                drain_mhsrs[head_mshr] <= 1'b1;
+            end
+
             logic sent_stage_5; // Keep track of if sent info to stage 5 yet
             sent_stage_5=1'b0;
-            // Update MSHRs
-            logic mshr_freed;
-            mshr_freed = 1'b0;
-            if(sdram_resp_valid) begin
+            // Check MSHRs for data to write to L1
+            if(|drain_mhsrs) begin
                 sent_stage_5 = 1'b1;
-                l1_resp_data <= sdram_resp_rdata;
-                l1_output_id <= mshrs[querying_mshr].queue[0].id;
+                // TODO: go to current_drain_mshr, drain next read. If no more reads, put last store into cache
+                // Also need to update current_drain_mshr, drain_mhsrs, unavailable_mshrs if no more reads
+            end
 
-                // TODO: update cache line with correct val if available
-                if (mshrs[querying_mshr].reads == 1) begin
-                    mshr_freed = 1'b1;
+            logic next_pending_evict;
+            next_pending_evict = pending_evict;
+            // If SDRAM accepts input, can move onto requesting next input
+            if (sdram_req_valid && sdram_req_ready) begin
+                if(pending_evict) begin
+                    next_pending_evict = 1'b0;  // SDRAM processing writing eviction
                 end else begin
-                    mshrs[querying_mshr].queue[0].data <= sdram_resp_rdata;
-                    mshrs[querying_mshr].writes[0] <= 1'b1;
-                    mshrs[querying_mshr].reads[0] <= 1'b0;
+                    head_mshr <= head_mshr + 1; // SDRAM processing read miss
                 end
             end
-
-            // Check MSHRs for data to write to L1
-            if(!sent_stage_5 && |drain_mhsrs) begin
-
-            end
-
-            // Check if SDRAM is ready for new queries
-            logic sent_to_sdram;
-            sent_to_sdram = 1'b0;
-
-            // Handle hit/miss and whether to add to MSHRs
+            
+            // 1 if someone plans on querying SDRAM
+            logic can_query;
 
             logic stall;    // Indicates whether or not to stall
-            stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5);
+            stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5)||next_pending_evict;
             
             if(!stall) begin
                 // Stage 4: handling hit/miss and modifying cache
-                logic [$clog2(NUM_WAYS)-1:0] target_line;
-                target_line = cache_hit ? cache_line_index:cache[stage4.set_index].oldest;
+                if (stage4.valid) begin
+                    logic [$clog2(NUM_WAYS)-1:0] target_line;
+                    target_line = cache_hit ? cache_line_index:cache[stage4.set_index].oldest;
 
-                // Update LRU grid
-                for(int l=0;l<NUM_WAYS;l++) begin
-                    if(l==target_line) begin
-                        cache[stage4.set_index].grid[l][l] <= 1'b0;
-                    end else begin
-                        cache[stage4.set_index].grid[target_line][l] <= 1'b1;
-                        cache[stage4.set_index].grid[l][target_line] <= 1'b0;
-                    end
-                end
-                cache[stage4.set_index].set[target_line].valid <= 1'b1;
-                if(stage4.write) begin
-                    cache[stage4.set_index].set[target_line].dirty <= 1'b1;
-                    cache[stage4.set_index].set[target_line].data <= stage4.data;
-                    if (!cache_hit && cache[stage4.set_index].set[target_line].valid && cache[stage4.set_index].set[target_line].dirty) begin
-                        // Write evicted+dirty to SDRAM (may have to wait for MSHR queries, if so stall until can write the evict)
-                        if (!sent_to_sdram) begin
-
+                    // Update LRU grid
+                    for(int l=0;l<NUM_WAYS;l++) begin
+                        if(l==target_line) begin
+                            cache[stage4.set_index].grid[l][l] <= 1'b0;
                         end else begin
-
+                            cache[stage4.set_index].grid[target_line][l] <= 1'b1;
+                            cache[stage4.set_index].grid[l][target_line] <= 1'b0;
                         end
                     end
-                end else begin
-                    if (cache_hit) begin
-                        // Send read data to stage 5
-                        sent_stage_5 = 1'b1;
-                        l1_resp_data <= cache[stage4.set_index].set[target_line].data;
-                        l1_output_id <= stage4.id;
-                    end else begin
-                        // Go to MSHR, need to check if already in MSHR
 
+                    if (cache[stage4.set_index].set[target_line].mshr) begin
+                        // Add to MSHR unless if that MSHR done draining from code above,
+                        // in which case just read/write. Need to coordinate TODO
+
+                    end else begin
+                        cache[stage4.set_index].set[target_line].valid <= 1'b1;
+                        if(stage4.write) begin
+                            cache[stage4.set_index].set[target_line].dirty <= 1'b1;
+                            cache[stage4.set_index].set[target_line].data <= stage4.data;
+                        end else begin
+                            if (cache_hit) begin
+                                // Send read data to stage 5
+                                sent_stage_5 = 1'b1;
+                                l1_resp_data <= cache[stage4.set_index].set[target_line].data;
+                                l1_output_id <= stage4.id;
+                            end else begin
+                                // Read miss, put read into a new MSHR TODO
+                                // Also need to write MSHR info into cache line
+                                mshrs[tail_mshr] // ASSIGN TO HERE
+                                unavailable_mshrs[tail_mshr] <= 1'b1;
+                                tail_mshr <= tail_mshr + 1;
+                            end
+                        end
+                        // Eviction
+                        if (!cache_hit && cache[stage4.set_index].set[target_line].valid && cache[stage4.set_index].set[target_line].dirty) begin
+                            // Send eviction write to SDRAM
+                            next_pending_evict = 1'b1;
+                            can_query = 1'b0;
+                            sdram_req_rw <= 1'b1;
+                            sdram_req_addr <= {cache[stage4.set_index].set[target_line].tag,stage4.set_index};
+                            sdram_req_wdata <= cache[stage4.set_index].set[target_line].data;
+                        end
                     end
                 end
 
                 // Stage 3: compare tags, see if hit/miss
                 stage4 <= stage3;
-                if(stage3.tag == stage4.tag && stage3.set_index == stage4.set_index) begin
+                if(stage4.valid && stage3.tag == stage4.tag && stage3.set_index == stage4.set_index) begin
                     cache_hit <= 1'b1;
                     cache_line_index <= cache_line_index;
                 end else begin
@@ -235,7 +258,7 @@ module l2cache #(
                 // Stage 2: get correct cache set
                 stage3 <= stage2;
                 relevant_set <= cache[stage2.set_index];
-                if(stage2.tag == stage4.tag && stage2.set_index == stage4.set_index) begin
+                if(stage4.valid && stage2.tag == stage4.tag && stage2.set_index == stage4.set_index) begin
                     forwarded_cache_line_index<=cache_line_index;
                     forwarded_valid <= 1'b1;
                 end else begin
@@ -257,8 +280,16 @@ module l2cache #(
             end else if (!stall) begin
                 stage1.valid <= 1'b0;
             end
+
+            if (unavailable_mshrs^drain_mhsrs != 0 && can_query) begin
+                // Query info from a MSHR to SDRAM (make query using head_mshr info) TODO
+                can_query = 1'b0;
+            end
+
             ready_for_input <= !stall;
             l1_resp_valid<=sent_stage_5;
+            pending_evict <= next_pending_evict;
+            sdram_req_valid <= !can_query;
         end
     end
 
