@@ -39,12 +39,40 @@ module DE10_NANO_SoC_GHRD(
 //  REG/WIRE declarations
 //=======================================================
 wire hps_fpga_reset_n;
-wire                fpga_clk_50;
-wire [6:0]	fpga_led_internal;
+wire fpga_clk_50;
+
+wire [127:0] trace_data;
+wire [127:0] commit_data;
+wire [127:0] hps_to_fpga_handshake;
+wire [127:0] fpga_to_hps_handshake;
+
+wire trace_valid;
+wire trace_ready;
+wire commit_ready;
+wire commit_valid;
+wire [47:0] commit_vaddr;
+wire [63:0] commit_value;
+
+wire sdram_req_valid;
+wire sdram_req_ready;
+wire sdram_req_rw;
+wire [31:0] sdram_req_addr;
+wire [511:0] sdram_req_wdata;
+wire sdram_resp_valid;
+wire [511:0] sdram_resp_rdata;
+
+reg [1:0] hps_to_fpga_handshake_prev;
 
 // connection of internal logics
-assign LED[7: 1] = fpga_led_internal;
+reg [2:0] led_index;
+assign LED = 8'b0000_0001 << led_index; // leds!
+
 assign fpga_clk_50 = FPGA_CLK1_50;
+assign fpga_to_hps_handshake = {126'd0, commit_valid, trace_ready};
+// convert to one-cycle pulse to make sure trace is only consumed once 
+assign trace_valid = hps_to_fpga_handshake[0] & ~hps_to_fpga_handshake_prev[0];
+assign commit_ready = hps_to_fpga_handshake[1] & ~hps_to_fpga_handshake_prev[1];
+assign commit_data = {16'd0, commit_value, commit_vaddr};
 
 
 //=======================================================
@@ -52,48 +80,83 @@ assign fpga_clk_50 = FPGA_CLK1_50;
 //=======================================================
 soc_system u0(
                //Clock&Reset
-               .clk_clk(FPGA_CLK1_50),                                      //                            clk.clk
-               .reset_reset_n(hps_fpga_reset_n),                            //                          reset.reset_n
+               .clk_clk(FPGA_CLK1_50),                                      //                                  clk.clk
+               .commit_data_export(commit_data),                       //                          commit_data.export
+               .fpga_to_hps_handshake_export(fpga_to_hps_handshake),   //                fpga_to_hps_handshake.export
+               .hps_to_fpga_handshake_readdata(hps_to_fpga_handshake), //                hps_to_fpga_handshake.readdata
+               .reset_reset_n(hps_fpga_reset_n),                            //                                reset.reset_n
                //HPS ddr3
-               .memory_mem_a(HPS_DDR3_ADDR),                                //                         memory.mem_a
-               .memory_mem_ba(HPS_DDR3_BA),                                 //                               .mem_ba
-               .memory_mem_ck(HPS_DDR3_CK_P),                               //                               .mem_ck
-               .memory_mem_ck_n(HPS_DDR3_CK_N),                             //                               .mem_ck_n
-               .memory_mem_cke(HPS_DDR3_CKE),                               //                               .mem_cke
-               .memory_mem_cs_n(HPS_DDR3_CS_N),                             //                               .mem_cs_n
-               .memory_mem_ras_n(HPS_DDR3_RAS_N),                           //                               .mem_ras_n
-               .memory_mem_cas_n(HPS_DDR3_CAS_N),                           //                               .mem_cas_n
-               .memory_mem_we_n(HPS_DDR3_WE_N),                             //                               .mem_we_n
-               .memory_mem_reset_n(HPS_DDR3_RESET_N),                       //                               .mem_reset_n
-               .memory_mem_dq(HPS_DDR3_DQ),                                 //                               .mem_dq
-               .memory_mem_dqs(HPS_DDR3_DQS_P),                             //                               .mem_dqs
-               .memory_mem_dqs_n(HPS_DDR3_DQS_N),                           //                               .mem_dqs_n
-               .memory_mem_odt(HPS_DDR3_ODT),                               //                               .mem_odt
-               .memory_mem_dm(HPS_DDR3_DM),                                 //                               .mem_dm
-               .memory_oct_rzqin(HPS_DDR3_RZQ),                             //                               .oct_rzqin
+               .memory_mem_a(HPS_DDR3_ADDR),                                //                               memory.mem_a
+               .memory_mem_ba(HPS_DDR3_BA),                                 //                                     .mem_ba
+               .memory_mem_ck(HPS_DDR3_CK_P),                               //                                     .mem_ck
+               .memory_mem_ck_n(HPS_DDR3_CK_N),                             //                                     .mem_ck_n
+               .memory_mem_cke(HPS_DDR3_CKE),                               //                                     .mem_cke
+               .memory_mem_cs_n(HPS_DDR3_CS_N),                             //                                     .mem_cs_n
+               .memory_mem_ras_n(HPS_DDR3_RAS_N),                           //                                     .mem_ras_n
+               .memory_mem_cas_n(HPS_DDR3_CAS_N),                           //                                     .mem_cas_n
+               .memory_mem_we_n(HPS_DDR3_WE_N),                             //                                     .mem_we_n
+               .memory_mem_reset_n(HPS_DDR3_RESET_N),                       //                                     .mem_reset_n
+               .memory_mem_dq(HPS_DDR3_DQ),                                 //                                     .mem_dq
+               .memory_mem_dqs(HPS_DDR3_DQS_P),                             //                                     .mem_dqs
+               .memory_mem_dqs_n(HPS_DDR3_DQS_N),                           //                                     .mem_dqs_n
+               .memory_mem_odt(HPS_DDR3_ODT),                               //                                     .mem_odt
+               .memory_mem_dm(HPS_DDR3_DM),                                 //                                     .mem_dm
+               .memory_oct_rzqin(HPS_DDR3_RZQ),                             //                                     .oct_rzqin
 
-               .hps_0_h2f_reset_reset_n(hps_fpga_reset_n)                  //                hps_0_h2f_reset.reset_n
+               .req_addr_export(sdram_req_addr),                            //                             req_addr.export
+               .req_ready_export(sdram_req_ready),                          //                            req_ready.export
+               .req_rw_export(sdram_req_rw),                                //                               req_rw.export
+               .req_valid_export(sdram_req_valid),                          //                            req_valid.export
+               .req_wdata_export(sdram_req_wdata),                          //                            req_wdata.export
+               .resp_rdata_export(sdram_resp_rdata),                        //                           resp_rdata.export
+               .resp_valid_export(sdram_resp_valid),                        //                           resp_valid.export
+               .trace_data_readdata(trace_data),                       //                           trace_data.readdata
+               .hps_0_h2f_reset_reset_n(hps_fpga_reset_n)                   //                      hps_0_h2f_reset.reset_n
 
-           );
+            );
+
+mem_top mem_top (
+    .clk(fpga_clk_50),
+    .rst(~hps_fpga_reset_n),
+    .trace_valid(trace_valid),
+    .trace_ready(trace_ready),
+    .trace_data(trace_data),
+    .commit_ready(commit_ready),
+    .commit_valid(commit_valid),
+    .commit_vaddr(commit_vaddr),
+    .commit_value(commit_value),
+    .sdram_req_valid(sdram_req_valid),
+    .sdram_req_ready(sdram_req_ready),
+    .sdram_req_rw(sdram_req_rw),
+    .sdram_req_addr(sdram_req_addr),
+    .sdram_req_wdata(sdram_req_wdata),
+    .sdram_resp_valid(sdram_resp_valid),
+    .sdram_resp_rdata(sdram_resp_rdata)
+);
 
 
 reg [25: 0] counter;
-reg led_level;
+always @(posedge fpga_clk_50 or negedge hps_fpga_reset_n) begin
+    if (~hps_fpga_reset_n) begin
+        hps_to_fpga_handshake_prev <= 2'b00;
+    end else begin
+        hps_to_fpga_handshake_prev <= hps_to_fpga_handshake[1:0];
+    end
+end
+
 always @(posedge fpga_clk_50 or negedge hps_fpga_reset_n) begin
     if (~hps_fpga_reset_n) begin
         counter <= 0;
-        led_level <= 0;
+        led_index <= 3'd0;
     end
 
     else if (counter == 24999999) begin
         counter <= 0;
-        led_level <= ~led_level;
+        led_index <= led_index + 3'd1;
     end
     else
         counter <= counter + 1'b1;
 end
-
-assign LED[0] = led_level;
 
 
 endmodule

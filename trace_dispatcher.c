@@ -20,22 +20,23 @@ static const char *COMMIT_LOG = "trace_commits.log";
 #define BRIDGE_BASE 0xC0000000
 #define BRIDGE_SPAN 0x1000
 
-#define TRACE_DATA_OFFSET   0 
-#define CTRL_STATUS_OFFSET  16 // handshake: when reading, bit0=trace_ready, bit1=commit_valid; when writing bit0=trace_submit, bit1=commit_pop
-#define COMMIT_DATA_OFFSET  32 // [47:0] is v_addr, [111:48] is commit_value
+#define TRACE_DATA_OFFSET             0
+#define HPS_TO_FPGA_HANDSHAKE_OFFSET 16
+#define COMMIT_DATA_OFFSET           32 // [47:0] is v_addr, [111:48] is commit_value
+#define FPGA_TO_HPS_HANDSHAKE_OFFSET 48
 
-#define CTRL_TRACE_SUBMIT   0b01
-#define CTRL_COMMIT_POP     0b10
+#define TRACE_VALID  0b01
+#define COMMIT_POP   0b10
 
-#define STATUS_TRACE_READY  0b01
-#define STATUS_COMMIT_VALID 0b10
+#define TRACE_READY  0b01
+#define COMMIT_VALID 0b10
 
 #define TIMEOUT_NS 100000000ULL
 
-static void pulse_control(volatile uint64_t *ctrl_reg, uint64_t mask)
+static void pulse_command(volatile uint64_t *cmd_reg, uint64_t mask)
 {
-    *ctrl_reg = mask;
-    *ctrl_reg = 0;
+    *cmd_reg = mask;
+    *cmd_reg = 0;
 }
 
 static uint64_t curr_time(void)
@@ -71,8 +72,9 @@ int main(void)
     int devmem_fd = -1;
     uint8_t *bridge_map = NULL;
     volatile u128 *trace_data_reg;
-    volatile uint64_t *ctrl_status_reg;
+    volatile uint64_t *hps_to_fpga_handshake_reg;
     volatile u128 *commit_data_reg;
+    volatile uint64_t *fpga_to_hps_handshake_reg;
     uint64_t last_progress_ns;
     bool trace_done = false;
 
@@ -112,27 +114,28 @@ int main(void)
     }
 
     trace_data_reg = (volatile u128 *)(bridge_map + TRACE_DATA_OFFSET);
-    ctrl_status_reg = (volatile uint64_t *)(bridge_map + CTRL_STATUS_OFFSET);
+    hps_to_fpga_handshake_reg = (volatile uint64_t *)(bridge_map + HPS_TO_FPGA_HANDSHAKE_OFFSET);
     commit_data_reg = (volatile u128 *)(bridge_map + COMMIT_DATA_OFFSET);
-    last_progress_ns = now_ns();
+    fpga_to_hps_handshake_reg = (volatile uint64_t *)(bridge_map + FPGA_TO_HPS_HANDSHAKE_OFFSET);
+    last_progress_ns = curr_time();
 
     while (true) {
-        uint64_t status = *ctrl_status_reg;
+        uint64_t status = *fpga_to_hps_handshake_reg;
         bool did_work = false;
 
-        if ((status & STATUS_COMMIT_VALID) != 0u) {
+        if ((status & COMMIT_VALID) != 0u) {
             u128 commit_word = *commit_data_reg;
             uint64_t commit_vaddr = (uint64_t)(commit_word & ((((u128)1) << 48) - 1));
             uint64_t commit_value = (uint64_t)(commit_word >> 48);
 
             // log commit_vaddr + commit_value
             fprintf(commit_fp, "0x%012" PRIx64 " 0x%016" PRIx64 "\n", commit_vaddr, commit_value);
-            pulse_control(ctrl_status_reg, CTRL_COMMIT_POP);
-            last_progress_ns = now_ns();
+            pulse_command(hps_to_fpga_handshake_reg, COMMIT_POP);
+            last_progress_ns = curr_time();
             did_work = true;
         }
 
-        if (!trace_done && (status & STATUS_TRACE_READY) != 0u) {
+        if (!trace_done && (status & TRACE_READY) != 0u) {
             u128 trace;
             int rc = read_trace(trace_fp, &trace);
 
@@ -148,8 +151,8 @@ int main(void)
                 trace_done = true;
             } else {
                 *trace_data_reg = trace;
-                pulse_control(ctrl_status_reg, CTRL_TRACE_SUBMIT);
-                last_progress_ns = now_ns();
+                pulse_command(hps_to_fpga_handshake_reg, TRACE_VALID);
+                last_progress_ns = curr_time();
                 did_work = true;
             }
         }
@@ -160,7 +163,8 @@ int main(void)
         }
 
         if (!did_work) {
-            usleep(1);
+            struct timespec sleep_time = {0, 1000};
+            nanosleep(&sleep_time, NULL);
         }
     }
 

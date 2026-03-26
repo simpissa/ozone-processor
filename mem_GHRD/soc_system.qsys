@@ -67,6 +67,22 @@
          type = "String";
       }
    }
+   element pio128_in_1
+   {
+      datum _sortIndex
+      {
+         value = "7";
+         type = "int";
+      }
+   }
+   element pio128_in_1.s0
+   {
+      datum baseAddress
+      {
+         value = "48";
+         type = "String";
+      }
+   }
    element pio128_out_0
    {
       datum _sortIndex
@@ -119,8 +135,8 @@
    type="conduit"
    dir="end" />
  <interface
-   name="ctrl_status"
-   internal="pio128_out_1.pio128_out"
+   name="fpga_to_hps_handshake"
+   internal="pio128_in_1.pio128_in"
    type="conduit"
    dir="end" />
  <interface name="hps_0_f2h_cold_reset_req" internal="hps_0.f2h_cold_reset_req" />
@@ -134,6 +150,11 @@
    dir="start" />
  <interface name="hps_0_h2f_user0_clock" internal="hps_0.h2f_user0_clock" />
  <interface name="hps_0_hps_io" internal="hps_0.hps_io" />
+ <interface
+   name="hps_to_fpga_handshake"
+   internal="pio128_out_1.pio128_out"
+   type="conduit"
+   dir="end" />
  <interface name="memory" internal="hps_0.memory" type="conduit" dir="end" />
  <interface
    name="req_addr"
@@ -728,6 +749,7 @@
   <parameter name="USE_RESPONSE" value="0" />
  </module>
  <module name="pio128_in_0" kind="pio128_in" version="1.0" enabled="1" />
+ <module name="pio128_in_1" kind="pio128_in" version="1.0" enabled="1" />
  <module name="pio128_out_0" kind="pio128_out" version="1.0" enabled="1" />
  <module name="pio128_out_1" kind="pio128_out" version="1.0" enabled="1" />
  <connection
@@ -775,6 +797,15 @@
   <parameter name="baseAddress" value="0x0020" />
   <parameter name="defaultConnection" value="false" />
  </connection>
+ <connection
+   kind="avalon"
+   version="25.1"
+   start="mm_bridge_0.m0"
+   end="pio128_in_1.s0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0030" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
  <connection kind="clock" version="25.1" start="clk_0.clk" end="mm_bridge_0.clk" />
  <connection
    kind="clock"
@@ -792,6 +823,7 @@
    version="25.1"
    start="clk_0.clk"
    end="avalon_sdr_0.clock" />
+ <connection kind="clock" version="25.1" start="clk_0.clk" end="pio128_in_1.clock" />
  <connection
    kind="clock"
    version="25.1"
@@ -827,6 +859,11 @@
    version="25.1"
    start="clk_0.clk_reset"
    end="avalon_sdr_0.reset" />
+ <connection
+   kind="reset"
+   version="25.1"
+   start="clk_0.clk_reset"
+   end="pio128_in_1.reset" />
  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="HANDSHAKE" />
  <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="1" />
 </system>

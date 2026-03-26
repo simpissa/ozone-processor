@@ -16,7 +16,7 @@ module mem_top #(
     // That way it should get set in the fpga memory as the addr at 0x20000000 or whatever it is
     // can else test it easily by creating this segment 
     // this can just get plugged into the l2
-    input logic [63:0] dram [0:1<<20],
+    // input logic [63:] dram [0:1<<20],
 
     // raw trace from HPS
     input logic trace_valid,
@@ -27,7 +27,16 @@ module mem_top #(
     input logic commit_ready,
     output logic commit_valid,
     output logic [VADDR_W-1:0] commit_vaddr,
-    output logic [63:0] commit_value
+    output logic [63:0] commit_value,
+
+    // sdram interface with l2
+    output logic         sdram_req_valid,
+    input  logic         sdram_req_ready,
+    output logic         sdram_req_rw,
+    output logic [31:0]  sdram_req_addr,
+    output logic [511:0] sdram_req_wdata,
+    input  logic         sdram_resp_valid,
+    input  logic [511:0] sdram_resp_rdata
 );
 
     typedef enum logic [2:0] {
@@ -169,11 +178,6 @@ module mem_top #(
             end
         end
     end
-
-    assign l1_req_ready = 1'b0;
-    assign l1_resp_valid = 1'b0;
-    assign l1_resp_id = '0;
-    assign l1_resp_data = '0;
 
     load_queue #(
         .LQ_SIZE(LQ_SIZE),
