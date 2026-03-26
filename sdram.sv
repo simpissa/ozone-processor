@@ -14,7 +14,8 @@ module sdram (
     output logic         resp_valid,
     output logic [511:0] resp_rdata,
 
-    output logic         busy,
+    // not needed while this only handles one request
+    // output logic         busy,
 
     // avalon mm port
     output logic         avm_m0_read,
@@ -159,7 +160,7 @@ module sdram (
     always_comb begin
         req_ready = 1'b0;
         resp_valid = 1'b0;
-        busy = 1'b1;
+        // busy = 1'b1;
 
         avm_m0_read = 1'b0;
         avm_m0_write = 1'b0;
@@ -170,7 +171,7 @@ module sdram (
 
         case (cur_state)
             S_IDLE: begin
-                busy = 1'b0;
+                // busy = 1'b0;
                 req_ready = 1'b1;
             end
 
