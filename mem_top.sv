@@ -48,6 +48,11 @@ module mem_top #(
 
     localparam int AGE_W = ID_W + 1;
 
+    // latched trace data — decouples trace_ready from trace_data contents
+    logic [127:0] trace_data_r;
+    logic trace_pending;
+    logic downstream_ready;
+
     logic [2:0] trace_op;
     logic [ID_W-1:0] trace_id;
     logic [VADDR_W-1:0] trace_vaddr;
@@ -101,29 +106,50 @@ module mem_top #(
 
     logic raw_trace_is_resolve;
 
-    assign trace_op = trace_data[54:52];
-    assign trace_id = trace_data[51:48];
-    assign trace_vaddr = trace_data[47:0];
-    assign trace_vaddr_is_valid = trace_data[55];
-    assign trace_value_is_valid = trace_data[120];
-    assign trace_value = trace_data[119:56];
-    assign trace_tlb_paddr = trace_data[85:56];
+    // accept a new trace from HPS whenever we aren't already holding one
+    assign trace_ready = ~trace_pending;
 
-    assign raw_trace_is_resolve = trace_valid && (trace_op == OP_MEM_RESOLVE);
-    assign sq_search_addr = lq_sq_query_addr;
-    assign sq_load_age = lq_sq_query_age;
+    // latch incoming trace data on acceptance
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            trace_data_r <= '0;
+            trace_pending <= 1'b0;
+        end else begin
+            if (trace_valid && trace_ready) begin
+                trace_data_r <= trace_data;
+                trace_pending <= 1'b1;
+            end else if (trace_fire) begin
+                trace_pending <= 1'b0;
+            end
+        end
+    end
 
+    // decode from latched data, not live trace_data
+    assign trace_op = trace_data_r[54:52];
+    assign trace_id = trace_data_r[51:48];
+    assign trace_vaddr = trace_data_r[47:0];
+    assign trace_vaddr_is_valid = trace_data_r[55];
+    assign trace_value_is_valid = trace_data_r[120];
+    assign trace_value = trace_data_r[119:56];
+    assign trace_tlb_paddr = trace_data_r[85:56];
+
+    // check if the downstream module for the latched op is ready
     always_comb begin
         case (trace_op)
-            OP_MEM_LOAD: trace_ready = lq_trace_ready;
-            OP_MEM_STORE: trace_ready = sq_ready_out;
-            OP_MEM_RESOLVE: trace_ready = 1'b1;
-            OP_TLB_FILL: trace_ready = tlb_fill_ready;
-            default: trace_ready = 1'b1;
+            OP_MEM_LOAD: downstream_ready = lq_trace_ready;
+            OP_MEM_STORE: downstream_ready = sq_ready_out;
+            OP_MEM_RESOLVE: downstream_ready = 1'b1;
+            OP_TLB_FILL: downstream_ready = tlb_fill_ready;
+            default: downstream_ready = 1'b1;
         endcase
     end
 
-    assign trace_fire = trace_valid && trace_ready;
+    // dispatch the latched trace when downstream can accept
+    assign trace_fire = trace_pending && downstream_ready;
+
+    assign raw_trace_is_resolve = trace_pending && (trace_op == OP_MEM_RESOLVE);
+    assign sq_search_addr = lq_sq_query_addr;
+    assign sq_load_age = lq_sq_query_age;
 
     always_ff @(posedge clk) begin
         if (rst) begin
