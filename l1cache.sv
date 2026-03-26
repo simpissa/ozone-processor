@@ -21,15 +21,19 @@ module l1cache #(
   output logic[ID_LENGTH-1:0] store_id_completed,
 
   output logic l1ready,
-  output logic miss_result,
   output logic[63:0] data_out,
   output logic data_valid,
   // l2 params
   input logic[BLOCK_SIZE*8-1:0] l2_data_in,
   input logic l2_data_valid,
   input logic[PADDR_W-1:0] l2_paddr,
+  input logic[ID_LENGTH-1:0] l2_id_recieved,
   output logic[BLOCK_SIZE*8-1:0] l2_write_back,
   output logic l2_write_back_valid,
+  output logic[PADDR_W-1:0] l2_write_back_paddr,
+  output logic l2_miss_out,
+  output logic[ID_LENGTH-1:0] l2_id_miss,
+  output logic[PADDR_W-1:0] l2_paddr_miss_out,
 
   // tlb params
   input logic[PADDR_W-1:0] tlb_paddr_in,
@@ -42,15 +46,15 @@ module l1cache #(
   localparam int TAG_SIZE = PADDR_W-($clog2(NUM_SETS) + $clog2(BLOCK_SIZE));
 
   typedef struct packed {
-    logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
+    logic[NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
   } data_arr_set;
 
   // TODO NUM_TAGS IN LINE IS BLOCK_SIZE / DATA_SIZE
   typedef struct packed {
-    logic [NUM_WAYS-1:0][TAG_SIZE-1:0] data;
-    logic valid;
+    logic[NUM_WAYS-1:0][TAG_SIZE-1:0] data;
+    logic[NUM_WAYS-1:0] valid;
+    logic[NUM_WAYS-1:0] dirty;
     logic lru;
-    logic dirty;
   } tag_arr_set;
 
   typedef struct packed {
@@ -168,7 +172,7 @@ module l1cache #(
           tag_sel = stage2.tag_set.data[i];
           way_index = ($clog2(NUM_WAYS))'(i);
           // Index in based off of what byte from block offset
-          data_sel = stage2.data_set.data[i][BLOCK_SIZE * 8 * stage2.block_offset +: 64];
+          data_sel = stage2.data_set.data[i][8 * stage2.block_offset +: 64];
           miss = 1'b0;
         end
       end
@@ -221,14 +225,14 @@ module l1cache #(
           .l2_paddr(l2_paddr),
           .is_store(stage3.is_store),
           .stall(should_stall_mshr),
-          .id_out(mshr_store_id),
+          .id_out(mshr_id),
           .write_out(mshr_data_out),
           .output_valid(mshr_out_valid),
           .offset_out(mshr_offset),
           .is_store_out(mshr_is_store_out)
         );
 
-  assign miss_result = stage3.miss;
+  assign l2_miss_out = stage3.miss;
   assign stage3_blocked = should_stall_mshr;
 
   /*
@@ -265,6 +269,8 @@ module l1cache #(
       // Output hit
       if(~stage3.is_store) begin
         // Presumably only handle loads since stores are handled in ff
+        data_valid <= 1'b1;
+        data_out <= stage3.data;
       end
     end else if(stage3.valid) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
@@ -272,6 +278,10 @@ module l1cache #(
       // Presumably output invalid because the stage is invalid and no other data is available out
     end
   end
+
+  logic[$clog2(NUM_SETS)-1:0] l2_paddr_set = l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)];
+  logic[$clog2(NUM_WAYS)-1:0] way_evicted = tag_arr[l2_paddr_set].lru;
+  logic[TAG_SIZE-1:0] l2_paddr_tag = l2_paddr[$clog2(BLOCK_SIZE) + $clog2(NUM_SETS) +: TAG_SIZE];
   
   // Update on a store
   always_ff @(posedge clk) begin
@@ -281,22 +291,25 @@ module l1cache #(
       // Bring in the data into the cache, have seperate logic for outputting instrs
       // from mshr
       // lru way 0, evict and make 1 lru
-      // TODO need to add dirty bit logic
-      // Tag array should be updated by each tag of the incoming data
-      // Just grab upper bits of the l2 paddr and put them into the tag array
-      // We can do the lru selection logic in an always comb and operate on it in here
-      if(tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru == 1'b0) begin
-        data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b0] <= l2_data_in;
-        // IF(DIRTY): SEND TO L2
-        tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru <= 1'b1
-      end else begin
-        data_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].data[1'b1] <= l2_data_in;
-        // IF(DIRTY): SEND TO L2
-        tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].lru <= 1'b0
-      tag_arr[l2_paddr[$clog2(BLOCK_SIZE) +: $clog2(NUM_SETS)]].dirty <= 1'b0
+      l2_write_back_valid <= 1'b0;
+
+      if(way_evicted == 1'b0) begin
+        tag_arr[l2_paddr_set].lru <= 1'b1;
+      end else begin        
+        tag_arr[l2_paddr_set].lru <= 1'b0;
       end
-    end else if(stage3.valid & ~stage3.miss & ~l2_data_valid & stage3.is_store) begin
-        data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
+      // Output line if dirty to update l2
+      if(tag_arr[l2_paddr_set].dirty[way_evicted]) begin
+        l2_write_back_valid <= 1'b1;
+        l2_write_back <= data_arr[l2_paddr_set].data[way_evicted];
+      end
+      // Store l2 data in cache and set to clean and valid
+      data_arr[l2_paddr_set].data[way_evicted] <= l2_data_in;
+      tag_arr[l2_paddr_set].data[way_evicted] <= l2_paddr_tag;
+      tag_arr[l2_paddr_set].dirty[way_evicted] <= 1'b0;
+      tag_arr[l2_paddr_set].valid[way_evicted] <= 1'b1;
+    end else if(stage3.valid & ~stage3.miss & stage3.is_store) begin
+      data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
     end
   end
 endmodule
@@ -427,6 +440,8 @@ module mshr#(
       end
       entries[l2_match_index].should_drain <= 1'b1;
     end 
+
+    // TODO Have ready out for l2 and block it
 
     if(miss && valid) begin
       if(match_made) begin  // Secondary miss
