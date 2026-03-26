@@ -294,6 +294,11 @@ initial begin
     // jump 5
     $display("Testing non-add to a full queue");
 
+    @(negedge clk_in);
+    reset = 1;
+    @(negedge clk_in);
+    reset = 0;
+
     // Test to make sure we don't overwrite with a full queue
     assert(trace_ready);
     for (int i = 0; i < 8; ++i) begin
@@ -306,8 +311,6 @@ initial begin
 
     trace_valid = 0;
     assert(!trace_ready);
-
-    // This test was visually inspected
 
     $display("passed");
     $display();

@@ -23,17 +23,21 @@ module l1cache #(
   output logic l1ready,
   output logic[63:0] data_out,
   output logic data_valid,
+
   // l2 params
-  input logic[BLOCK_SIZE*8-1:0] l2_data_in,
-  input logic l2_data_valid,
-  input logic[PADDR_W-1:0] l2_paddr,
-  input logic[ID_LENGTH-1:0] l2_id_recieved,
-  output logic[BLOCK_SIZE*8-1:0] l2_write_back,
-  output logic l2_write_back_valid,
-  output logic[PADDR_W-1:0] l2_write_back_paddr,
-  output logic l2_miss_out,
-  output logic[ID_LENGTH-1:0] l2_id_miss,
-  output logic[PADDR_W-1:0] l2_paddr_miss_out,
+  // Query L2
+  output logic req_valid;
+  output logic req_rw;
+  output logic [PADDR_W-1:0] req_paddr;
+  output logic [511:0] req_data;
+  output logic [ID_LENGTH-1:0] query_id;
+  input logic ready_for_resp;
+
+  // L2 Response
+  input logic resp_valid;
+  input logic [511:0] resp_data;
+  input logic [ID_LENGTH-1:0] resp_id;
+
 
   // tlb params
   input logic[PADDR_W-1:0] tlb_paddr_in,

@@ -8,7 +8,6 @@ module load_queue #(
     input  logic         reset,
 
     // Incoming trace operations
-    
     input  logic         trace_valid,
     input  logic [2:0]   trace_op,
     input  logic [ID_W-1:0]   trace_id,
@@ -208,7 +207,6 @@ always_ff @(posedge clk) begin
         end
     end
 
-
     if (issue_storeq) begin
         if (sq_miss || sq_had_miss) begin
             sq_had_miss <= 1;
@@ -258,7 +256,6 @@ always_ff @(posedge clk) begin
             l1_req_valid <= 0;
         end
     end
-    
 
     // dequeue the head
     if (queue[head].completed && queue[head].valid) begin
