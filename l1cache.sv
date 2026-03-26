@@ -11,24 +11,24 @@ module l1cache #(
 	input  logic         clk,
 	input  logic         reset,
   // lsq params
-  input logic[VADDR_W-1:0] vaddr,
+  input logic [VADDR_W-1:0] vaddr,
   input logic loadValid,
-  input logic[ID_LENGTH-1:0] load_id,
-  input logic[ID_LENGTH-1:0] store_id,
+  input logic [ID_LENGTH-1:0] load_id,
+  input logic [ID_LENGTH-1:0] store_id,
   input logic storeValid,
-  input logic[63:0] store_data,
-  output logic[ID_LENGTH-1:0] load_id_completed,
-  output logic[ID_LENGTH-1:0] store_id_completed,
+  input logic [63:0] store_data,
+  output logic [ID_LENGTH-1:0] load_id_completed,
+  output logic [ID_LENGTH-1:0] store_id_completed,
 
   output logic l1ready,
-  output logic[63:0] data_out,
+  output logic [63:0] data_out,
   output logic data_valid,
 
   // l2 params
   // Query L2
   output logic req_valid;
   output logic req_rw;
-  output logic [PADDR_W-1:0] req_paddr;
+  output logic [PADDR_W-6-1:0] req_paddr;
   output logic [511:0] req_data;
   output logic [ID_LENGTH-1:0] query_id;
   input logic ready_for_resp;
@@ -40,9 +40,9 @@ module l1cache #(
 
 
   // tlb params
-  input logic[PADDR_W-1:0] tlb_paddr_in,
+  input logic [PADDR_W-1:0] tlb_paddr_in,
   input logic tlb_paddr_ready,
-  output logic[VADDR_W-1:0] tlb_vaddr_out,
+  output logic [VADDR_W-1:0] tlb_vaddr_out,
   output logic tlb_vaddr_valid
 );
 
@@ -50,14 +50,14 @@ module l1cache #(
   localparam int TAG_SIZE = PADDR_W-($clog2(NUM_SETS) + $clog2(BLOCK_SIZE));
 
   typedef struct packed {
-    logic[NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
+    logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
   } data_arr_set;
 
   // TODO NUM_TAGS IN LINE IS BLOCK_SIZE / DATA_SIZE
   typedef struct packed {
-    logic[NUM_WAYS-1:0][TAG_SIZE-1:0] data;
-    logic[NUM_WAYS-1:0] valid;
-    logic[NUM_WAYS-1:0] dirty;
+    logic [NUM_WAYS-1:0][TAG_SIZE-1:0] data;
+    logic [NUM_WAYS-1:0] valid;
+    logic [NUM_WAYS-1:0] dirty;
     logic lru;
   } tag_arr_set;
 
