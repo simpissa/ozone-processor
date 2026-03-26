@@ -41,7 +41,7 @@ module l2cache #(
     output  logic [WORD_ADDR_SIZE-1:0]  sdram_req_addr,        // byte address
     output  logic [BLOCK_SIZE*8-1:0] sdram_req_wdata,       // one full cache line
 
-    // Answers from SDRAM
+    // Answers from SDRAM. Always ready to receive answers from SDRAM
     input logic             sdram_resp_valid,
     input logic [BLOCK_SIZE*8-1:0] sdram_resp_rdata,
 );
@@ -269,7 +269,7 @@ module l2cache #(
                 stage2 <= stage1;
             end
             // Stage 1: get inputs, find tag, cache set
-            if (ready_for_input && req_valid) begin
+            if (l1_ready_for_input && req_valid) begin
                 // Accept input from L1
                 stage1.id <= l1_query_id;
                 stage1.tag <= l1_req_paddr[WORD_ADDR_SIZE-1:$clog2(NUM_SETS)];
@@ -286,7 +286,7 @@ module l2cache #(
                 can_query = 1'b0;
             end
 
-            ready_for_input <= !stall;
+            l1_ready_for_input <= !stall;
             l1_resp_valid<=sent_stage_5;
             pending_evict <= next_pending_evict;
             sdram_req_valid <= !can_query;
