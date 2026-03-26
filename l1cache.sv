@@ -26,17 +26,17 @@ module l1cache #(
 
   // l2 params
   // Query L2
-  output logic req_valid;
-  output logic req_rw;
-  output logic [PADDR_W-6-1:0] req_paddr;
-  output logic [511:0] req_data;
-  output logic [ID_LENGTH-1:0] query_id;
-  input logic ready_for_resp;
+  output logic l2_req_valid, // our request is valid
+  output logic l2_req_rw, // read/write operation associated with request (not sure which is which, needs to be worked out w/ l2)
+  output logic [PADDR_W-6-1:0] l2_req_paddr, // physical addr associated w/ request
+  output logic [511:0] l2_req_data, // data for write request
+  output logic [ID_LENGTH-1:0] l2_query_id, // id on request 
+  input logic l2_ready_for_resp, // is l1 ready for l2 response
 
   // L2 Response
-  input logic resp_valid;
-  input logic [511:0] resp_data;
-  input logic [ID_LENGTH-1:0] resp_id;
+  input logic l2_resp_valid,
+  input logic [511:0] l2_resp_data,
+  input logic [ID_LENGTH-1:0] l2_resp_id,
 
 
   // tlb params
