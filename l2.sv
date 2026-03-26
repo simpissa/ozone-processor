@@ -172,15 +172,16 @@ module l2cache #(
             if(!sent_stage_5 && |drain_mhsrs) begin
 
             end
-            // Always check if SDRAM is ready for new queries
+
+            // Check if SDRAM is ready for new queries
+            logic sent_to_sdram;
+            sent_to_sdram = 1'b0;
 
             // Handle hit/miss and whether to add to MSHRs
 
             logic stall;    // Indicates whether or not to stall
             stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5);
             
-            l1_resp_valid<=sent_stage_5;
-
             if(!stall) begin
                 // Stage 4: handling hit/miss and modifying cache
                 logic [$clog2(NUM_WAYS)-1:0] target_line;
@@ -199,14 +200,23 @@ module l2cache #(
                 if(stage4.write) begin
                     cache[stage4.set_index].set[target_line].dirty <= 1'b1;
                     cache[stage4.set_index].set[target_line].data <= stage4.data;
-                    if (!cache_hit) begin
+                    if (!cache_hit && cache[stage4.set_index].set[target_line].valid && cache[stage4.set_index].set[target_line].dirty) begin
+                        // Write evicted+dirty to SDRAM (may have to wait for MSHR queries, if so stall until can write the evict)
+                        if (!sent_to_sdram) begin
+
+                        end else begin
+
+                        end
                     end
                 end else begin
                     if (cache_hit) begin
                         // Send read data to stage 5
+                        sent_stage_5 = 1'b1;
+                        l1_resp_data <= cache[stage4.set_index].set[target_line].data;
+                        l1_output_id <= stage4.id;
                     end else begin
-                        // Go to MSHR
-                        
+                        // Go to MSHR, need to check if already in MSHR
+
                     end
                 end
 
@@ -232,7 +242,6 @@ module l2cache #(
                     forwarded_valid<=1'b0;
                 end
 
-
                 // Sending to stage 2
                 stage2 <= stage1;
             end
@@ -249,6 +258,7 @@ module l2cache #(
                 stage1.valid <= 1'b0;
             end
             ready_for_input <= !stall;
+            l1_resp_valid<=sent_stage_5;
         end
     end
 
