@@ -24,13 +24,6 @@ Info: soc_system.hps_0: HPS Main PLL counter settings: n = 0  m = 63
 Info: soc_system.hps_0: HPS peripherial PLL counter settings: n = 0  m = 39
 Warning: soc_system.hps_0: HPS model no longer supports simulation for HPS FPGA Bridges.
 Warning: soc_system.hps_0: set_interface_assignment: Interface "hps_io" does not exist
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_addr must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_ready must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_rw must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_wdata must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.resp_rdata must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.resp_valid must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_valid must be exported, or connected to a matching conduit.
 Info: qsys-generate succeeded.
 Info: Finished: Create block symbol file (.bsf)
 Info: 
@@ -60,13 +53,6 @@ Info: soc_system.hps_0: HPS Main PLL counter settings: n = 0  m = 63
 Info: soc_system.hps_0: HPS peripherial PLL counter settings: n = 0  m = 39
 Warning: soc_system.hps_0: HPS model no longer supports simulation for HPS FPGA Bridges.
 Warning: soc_system.hps_0: set_interface_assignment: Interface "hps_io" does not exist
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_addr must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_ready must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_rw must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_wdata must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.resp_rdata must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.resp_valid must be exported, or connected to a matching conduit.
-Warning: soc_system.avalon_sdr_0: avalon_sdr_0.req_valid must be exported, or connected to a matching conduit.
 Info: soc_system: Generating "soc_system" for QUARTUS_SYNTH
 Info: Interconnect is inserted between master hps_0.h2f_axi_master and slave mm_bridge_0.s0 because the master is of type axi and the slave is of type avalon.
 Info: Interconnect is inserted between master avalon_sdr_0.m0 and slave hps_0.f2h_sdram0_data because the master has address signal 32 bit wide, but the slave is 27 bit wide.

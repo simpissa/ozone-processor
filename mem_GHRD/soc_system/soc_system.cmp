@@ -1,34 +1,35 @@
 	component soc_system is
 		port (
-			clk_clk                 : in    std_logic                      := 'X';             -- clk
-			commit_data_export      : in    std_logic_vector(127 downto 0) := (others => 'X'); -- export
-			ctrl_status_readdata    : out   std_logic_vector(127 downto 0);                    -- readdata
-			hps_0_h2f_reset_reset_n : out   std_logic;                                         -- reset_n
-			memory_mem_a            : out   std_logic_vector(14 downto 0);                     -- mem_a
-			memory_mem_ba           : out   std_logic_vector(2 downto 0);                      -- mem_ba
-			memory_mem_ck           : out   std_logic;                                         -- mem_ck
-			memory_mem_ck_n         : out   std_logic;                                         -- mem_ck_n
-			memory_mem_cke          : out   std_logic;                                         -- mem_cke
-			memory_mem_cs_n         : out   std_logic;                                         -- mem_cs_n
-			memory_mem_ras_n        : out   std_logic;                                         -- mem_ras_n
-			memory_mem_cas_n        : out   std_logic;                                         -- mem_cas_n
-			memory_mem_we_n         : out   std_logic;                                         -- mem_we_n
-			memory_mem_reset_n      : out   std_logic;                                         -- mem_reset_n
-			memory_mem_dq           : inout std_logic_vector(31 downto 0)  := (others => 'X'); -- mem_dq
-			memory_mem_dqs          : inout std_logic_vector(3 downto 0)   := (others => 'X'); -- mem_dqs
-			memory_mem_dqs_n        : inout std_logic_vector(3 downto 0)   := (others => 'X'); -- mem_dqs_n
-			memory_mem_odt          : out   std_logic;                                         -- mem_odt
-			memory_mem_dm           : out   std_logic_vector(3 downto 0);                      -- mem_dm
-			memory_oct_rzqin        : in    std_logic                      := 'X';             -- oct_rzqin
-			req_addr_export         : in    std_logic_vector(31 downto 0)  := (others => 'X'); -- export
-			req_ready_export        : out   std_logic;                                         -- export
-			req_rw_export           : in    std_logic                      := 'X';             -- export
-			req_valid_export        : inout std_logic                      := 'X';             -- export
-			req_wdata_export        : in    std_logic_vector(511 downto 0) := (others => 'X'); -- export
-			reset_reset_n           : in    std_logic                      := 'X';             -- reset_n
-			resp_rdata_export       : out   std_logic_vector(511 downto 0);                    -- export
-			resp_valid_export       : out   std_logic;                                         -- export
-			trace_data_readdata     : out   std_logic_vector(127 downto 0)                     -- readdata
+			clk_clk                        : in    std_logic                      := 'X';             -- clk
+			commit_data_export             : in    std_logic_vector(127 downto 0) := (others => 'X'); -- export
+			fpga_to_hps_handshake_export   : in    std_logic_vector(127 downto 0) := (others => 'X'); -- export
+			hps_0_h2f_reset_reset_n        : out   std_logic;                                         -- reset_n
+			hps_to_fpga_handshake_readdata : out   std_logic_vector(127 downto 0);                    -- readdata
+			memory_mem_a                   : out   std_logic_vector(14 downto 0);                     -- mem_a
+			memory_mem_ba                  : out   std_logic_vector(2 downto 0);                      -- mem_ba
+			memory_mem_ck                  : out   std_logic;                                         -- mem_ck
+			memory_mem_ck_n                : out   std_logic;                                         -- mem_ck_n
+			memory_mem_cke                 : out   std_logic;                                         -- mem_cke
+			memory_mem_cs_n                : out   std_logic;                                         -- mem_cs_n
+			memory_mem_ras_n               : out   std_logic;                                         -- mem_ras_n
+			memory_mem_cas_n               : out   std_logic;                                         -- mem_cas_n
+			memory_mem_we_n                : out   std_logic;                                         -- mem_we_n
+			memory_mem_reset_n             : out   std_logic;                                         -- mem_reset_n
+			memory_mem_dq                  : inout std_logic_vector(31 downto 0)  := (others => 'X'); -- mem_dq
+			memory_mem_dqs                 : inout std_logic_vector(3 downto 0)   := (others => 'X'); -- mem_dqs
+			memory_mem_dqs_n               : inout std_logic_vector(3 downto 0)   := (others => 'X'); -- mem_dqs_n
+			memory_mem_odt                 : out   std_logic;                                         -- mem_odt
+			memory_mem_dm                  : out   std_logic_vector(3 downto 0);                      -- mem_dm
+			memory_oct_rzqin               : in    std_logic                      := 'X';             -- oct_rzqin
+			req_addr_export                : in    std_logic_vector(31 downto 0)  := (others => 'X'); -- export
+			req_ready_export               : out   std_logic;                                         -- export
+			req_rw_export                  : in    std_logic                      := 'X';             -- export
+			req_valid_export               : inout std_logic                      := 'X';             -- export
+			req_wdata_export               : in    std_logic_vector(511 downto 0) := (others => 'X'); -- export
+			reset_reset_n                  : in    std_logic                      := 'X';             -- reset_n
+			resp_rdata_export              : out   std_logic_vector(511 downto 0);                    -- export
+			resp_valid_export              : out   std_logic;                                         -- export
+			trace_data_readdata            : out   std_logic_vector(127 downto 0)                     -- readdata
 		);
 	end component soc_system;
 

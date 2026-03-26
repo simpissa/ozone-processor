@@ -5,6 +5,7 @@ module mem_tb ();
 logic clk_in;
 logic reset;
 
+// if were gonna run this we might have to write a module for the sdram controller
 logic [63:0] dram [0:1<<20];
 logic trace_valid;
 logic trace_ready;

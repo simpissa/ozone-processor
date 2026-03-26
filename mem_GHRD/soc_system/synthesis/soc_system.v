@@ -4,35 +4,36 @@
 
 `timescale 1 ps / 1 ps
 module soc_system (
-		input  wire         clk_clk,                 //             clk.clk
-		input  wire [127:0] commit_data_export,      //     commit_data.export
-		output wire [127:0] ctrl_status_readdata,    //     ctrl_status.readdata
-		output wire         hps_0_h2f_reset_reset_n, // hps_0_h2f_reset.reset_n
-		output wire [14:0]  memory_mem_a,            //          memory.mem_a
-		output wire [2:0]   memory_mem_ba,           //                .mem_ba
-		output wire         memory_mem_ck,           //                .mem_ck
-		output wire         memory_mem_ck_n,         //                .mem_ck_n
-		output wire         memory_mem_cke,          //                .mem_cke
-		output wire         memory_mem_cs_n,         //                .mem_cs_n
-		output wire         memory_mem_ras_n,        //                .mem_ras_n
-		output wire         memory_mem_cas_n,        //                .mem_cas_n
-		output wire         memory_mem_we_n,         //                .mem_we_n
-		output wire         memory_mem_reset_n,      //                .mem_reset_n
-		inout  wire [31:0]  memory_mem_dq,           //                .mem_dq
-		inout  wire [3:0]   memory_mem_dqs,          //                .mem_dqs
-		inout  wire [3:0]   memory_mem_dqs_n,        //                .mem_dqs_n
-		output wire         memory_mem_odt,          //                .mem_odt
-		output wire [3:0]   memory_mem_dm,           //                .mem_dm
-		input  wire         memory_oct_rzqin,        //                .oct_rzqin
-		input  wire [31:0]  req_addr_export,         //        req_addr.export
-		output wire         req_ready_export,        //       req_ready.export
-		input  wire         req_rw_export,           //          req_rw.export
-		inout  wire         req_valid_export,        //       req_valid.export
-		input  wire [511:0] req_wdata_export,        //       req_wdata.export
-		input  wire         reset_reset_n,           //           reset.reset_n
-		output wire [511:0] resp_rdata_export,       //      resp_rdata.export
-		output wire         resp_valid_export,       //      resp_valid.export
-		output wire [127:0] trace_data_readdata      //      trace_data.readdata
+		input  wire         clk_clk,                        //                   clk.clk
+		input  wire [127:0] commit_data_export,             //           commit_data.export
+		input  wire [127:0] fpga_to_hps_handshake_export,   // fpga_to_hps_handshake.export
+		output wire         hps_0_h2f_reset_reset_n,        //       hps_0_h2f_reset.reset_n
+		output wire [127:0] hps_to_fpga_handshake_readdata, // hps_to_fpga_handshake.readdata
+		output wire [14:0]  memory_mem_a,                   //                memory.mem_a
+		output wire [2:0]   memory_mem_ba,                  //                      .mem_ba
+		output wire         memory_mem_ck,                  //                      .mem_ck
+		output wire         memory_mem_ck_n,                //                      .mem_ck_n
+		output wire         memory_mem_cke,                 //                      .mem_cke
+		output wire         memory_mem_cs_n,                //                      .mem_cs_n
+		output wire         memory_mem_ras_n,               //                      .mem_ras_n
+		output wire         memory_mem_cas_n,               //                      .mem_cas_n
+		output wire         memory_mem_we_n,                //                      .mem_we_n
+		output wire         memory_mem_reset_n,             //                      .mem_reset_n
+		inout  wire [31:0]  memory_mem_dq,                  //                      .mem_dq
+		inout  wire [3:0]   memory_mem_dqs,                 //                      .mem_dqs
+		inout  wire [3:0]   memory_mem_dqs_n,               //                      .mem_dqs_n
+		output wire         memory_mem_odt,                 //                      .mem_odt
+		output wire [3:0]   memory_mem_dm,                  //                      .mem_dm
+		input  wire         memory_oct_rzqin,               //                      .oct_rzqin
+		input  wire [31:0]  req_addr_export,                //              req_addr.export
+		output wire         req_ready_export,               //             req_ready.export
+		input  wire         req_rw_export,                  //                req_rw.export
+		inout  wire         req_valid_export,               //             req_valid.export
+		input  wire [511:0] req_wdata_export,               //             req_wdata.export
+		input  wire         reset_reset_n,                  //                 reset.reset_n
+		output wire [511:0] resp_rdata_export,              //            resp_rdata.export
+		output wire         resp_valid_export,              //            resp_valid.export
+		output wire [127:0] trace_data_readdata             //            trace_data.readdata
 	);
 
 	wire    [1:0] hps_0_h2f_axi_master_awburst;                          // hps_0:h2f_AWBURST -> mm_interconnect_0:hps_0_h2f_axi_master_awburst
@@ -115,7 +116,9 @@ module soc_system (
 	wire  [127:0] mm_interconnect_2_pio128_out_0_s0_writedata;           // mm_interconnect_2:pio128_out_0_s0_writedata -> pio128_out_0:avs_s0_writedata
 	wire  [127:0] mm_interconnect_2_pio128_in_0_s0_readdata;             // pio128_in_0:avs_s0_readdata -> mm_interconnect_2:pio128_in_0_s0_readdata
 	wire          mm_interconnect_2_pio128_in_0_s0_read;                 // mm_interconnect_2:pio128_in_0_s0_read -> pio128_in_0:avs_s0_read
-	wire          rst_controller_reset_out_reset;                        // rst_controller:reset_out -> [avalon_sdr_0:reset, mm_bridge_0:reset, mm_interconnect_0:mm_bridge_0_reset_reset_bridge_in_reset_reset, mm_interconnect_1:avalon_sdr_0_reset_reset_bridge_in_reset_reset, mm_interconnect_2:mm_bridge_0_reset_reset_bridge_in_reset_reset, pio128_in_0:reset, pio128_out_0:reset, pio128_out_1:reset]
+	wire  [127:0] mm_interconnect_2_pio128_in_1_s0_readdata;             // pio128_in_1:avs_s0_readdata -> mm_interconnect_2:pio128_in_1_s0_readdata
+	wire          mm_interconnect_2_pio128_in_1_s0_read;                 // mm_interconnect_2:pio128_in_1_s0_read -> pio128_in_1:avs_s0_read
+	wire          rst_controller_reset_out_reset;                        // rst_controller:reset_out -> [avalon_sdr_0:reset, mm_bridge_0:reset, mm_interconnect_0:mm_bridge_0_reset_reset_bridge_in_reset_reset, mm_interconnect_1:avalon_sdr_0_reset_reset_bridge_in_reset_reset, mm_interconnect_2:mm_bridge_0_reset_reset_bridge_in_reset_reset, pio128_in_0:reset, pio128_in_1:reset, pio128_out_0:reset, pio128_out_1:reset]
 	wire          rst_controller_001_reset_out_reset;                    // rst_controller_001:reset_out -> [mm_interconnect_0:hps_0_h2f_axi_master_agent_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_1:hps_0_f2h_sdram0_data_translator_reset_reset_bridge_in_reset_reset]
 
 	sdram avalon_sdr_0 (
@@ -251,6 +254,14 @@ module soc_system (
 		.pio_in          (commit_data_export)                         // pio128_in.export
 	);
 
+	pio128_in pio128_in_1 (
+		.clk             (clk_clk),                                   //     clock.clk
+		.reset           (rst_controller_reset_out_reset),            //     reset.reset
+		.avs_s0_read     (mm_interconnect_2_pio128_in_1_s0_read),     //        s0.read
+		.avs_s0_readdata (mm_interconnect_2_pio128_in_1_s0_readdata), //          .readdata
+		.pio_in          (fpga_to_hps_handshake_export)               // pio128_in.export
+	);
+
 	pio128_out pio128_out_0 (
 		.clk              (clk_clk),                                     //      clock.clk
 		.reset            (rst_controller_reset_out_reset),              //      reset.reset
@@ -264,7 +275,7 @@ module soc_system (
 		.reset            (rst_controller_reset_out_reset),              //      reset.reset
 		.avs_s0_write     (mm_interconnect_2_pio128_out_1_s0_write),     //         s0.write
 		.avs_s0_writedata (mm_interconnect_2_pio128_out_1_s0_writedata), //           .writedata
-		.pio_out          (ctrl_status_readdata)                         // pio128_out.readdata
+		.pio_out          (hps_to_fpga_handshake_readdata)               // pio128_out.readdata
 	);
 
 	soc_system_mm_interconnect_0 mm_interconnect_0 (
@@ -358,6 +369,8 @@ module soc_system (
 		.mm_bridge_0_m0_debugaccess                    (mm_bridge_0_m0_debugaccess),                  //                                        .debugaccess
 		.pio128_in_0_s0_read                           (mm_interconnect_2_pio128_in_0_s0_read),       //                          pio128_in_0_s0.read
 		.pio128_in_0_s0_readdata                       (mm_interconnect_2_pio128_in_0_s0_readdata),   //                                        .readdata
+		.pio128_in_1_s0_read                           (mm_interconnect_2_pio128_in_1_s0_read),       //                          pio128_in_1_s0.read
+		.pio128_in_1_s0_readdata                       (mm_interconnect_2_pio128_in_1_s0_readdata),   //                                        .readdata
 		.pio128_out_0_s0_write                         (mm_interconnect_2_pio128_out_0_s0_write),     //                         pio128_out_0_s0.write
 		.pio128_out_0_s0_writedata                     (mm_interconnect_2_pio128_out_0_s0_writedata), //                                        .writedata
 		.pio128_out_1_s0_write                         (mm_interconnect_2_pio128_out_1_s0_write),     //                         pio128_out_1_s0.write
