@@ -269,8 +269,36 @@ module l2cache #(
 
                     if (cache[stage4.set_index].set[target_line].mshr) begin
                         // Add to MSHR unless if that MSHR done draining from code above,
-                        // in which case just read/write. Need to coordinate TODO
+                        // in which case just read/write. Need to coordinate 
+                        logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
+                        logic [$clog2(MSHR_QUEUE_SIZE)-1:0] enqueue_idx;
+                        logic draining_same_mshr;
+                        logic [MSHR_QUEUE_SIZE-1:0] updated_reads;
+                        logic [MSHR_QUEUE_SIZE-1:0] updated_writes;
+                        mshr_entry new_entry;
 
+                        target_mshr = cache[stage4.set_index].set[target_line].mshr_index;
+                        draining_same_mshr = drain_mhsrs[target_mshr] && (current_drain_mshr == target_mshr);
+                        enqueue_idx = mshrs[target_mshr].tail;
+
+                        // If the mshr is being drained this cycle, the queue is shifted left first
+                        if(draining_same_mshr && (enqueue_idx != 0)) begin
+                            enqueue_idx = enqueue_idx - 1'b1;
+                        end
+
+                        new_entry.write = stage4.write;
+                        new_entry.addr = {stage4.tag, stage4.set_index};
+                        new_entry.data = stage4.write ? stage4.data : '0;
+                        new_entry.id = stage4.id;
+                        mshrs[target_mshr].queue[enqueue_idx] <= new_entry;
+                        
+                        updated_reads = draining_same_mshr ? (mshrs[target_mshr].reads >> 1) : mshrs[target_mshr].reads;
+                        updated_writes = draining_same_mshr ? (mshrs[target_mshr].writes >> 1) : mshrs[target_mshr].writes;
+                        updated_reads[enqueue_idx] = !stage4.write;
+                        updated_writes[enqueue_idx] = stage4.write;
+                        mshrs[target_mshr].reads <= updated_reads;
+                        mshrs[target_mshr].writes <= updated_writes;
+                        mshrs[target_mshr].tail <= enqueue_idx + 1'b1;
                     end else begin
                         cache[stage4.set_index].set[target_line].valid <= 1'b1;
                         if(stage4.write) begin
@@ -283,9 +311,19 @@ module l2cache #(
                                 l1_resp_data <= cache[stage4.set_index].set[target_line].data;
                                 l1_output_id <= stage4.id;
                             end else begin
-                                // Read miss, put read into a new MSHR TODO
+                                // Read miss, put read into a new MSHR
                                 // Also need to write MSHR info into cache line
-                                mshrs[tail_mshr] // ASSIGN TO HERE
+                                mshrs[tail_mshr].queue[0].write <= 1'b0;
+                                mshrs[tail_mshr].queue[0].addr <= {stage4.tag, stage4.set_index};
+                                mshrs[tail_mshr].queue[0].data <= '0; // filled by sdram response
+                                mshrs[tail_mshr].queue[0].id <= stage4.id;
+                                mshrs[tail_mshr].tail <= 1'b1;
+                                mshrs[tail_mshr].reads <= {{(MSHR_QUEUE_SIZE-1){1'b0}}, 1'b1};
+                                mshrs[tail_mshr].writes <= '0;
+                                mshrs[tail_mshr].cache_line_index <= target_line;
+                                cache[stage4.set_index].set[target_line].mshr <= 1'b1;
+                                cache[stage4.set_index].set[target_line].mshr_index <= tail_mshr;
+                                cache[stage4.set_index].set[target_line].tag <= stage4.tag;
                                 unavailable_mshrs[tail_mshr] <= 1'b1;
                                 tail_mshr <= tail_mshr + 1;
                             end
