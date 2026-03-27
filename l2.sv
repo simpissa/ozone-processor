@@ -77,8 +77,6 @@ module l2cache #(
     
     // Stage 4 MSHRs
     typedef struct packed {
-        logic write;    // 1 if write, 0 if read
-        logic [WORD_ADDR_SIZE-1:0] addr;
         logic [BLOCK_SIZE*8-1:0] data;
         logic [ID_LENGTH-1:0] id;
     } mshr_entry;
@@ -87,8 +85,11 @@ module l2cache #(
         mshr_entry queue [MSHR_QUEUE_SIZE];
         logic [$clog2(MSHR_QUEUE_SIZE)-1:0] tail;
         logic [MSHR_QUEUE_SIZE-1:0] reads;  // Indicates where the read operations in mhsr are
-        logic [MSHR_QUEUE_SIZE-1:0] writes;  // Indicates where the write operations in mhsr are
         logic [$clog2(NUM_WAYS)-1:0] cache_line_index;   // Index of corresponding cache line in cache set
+        logic [TAG_SIZE-1:0] tag;
+        logic [$clog2(NUM_SETS)-1:0] set_index;
+        logic [BLOCK_SIZE*8-1:0] latest_value;  // Keep track of latest store into queue
+        logic valid_value;
     } mshr;
 
     // Since SDRAM answers one at a time, assign MSHRs as circular buffer to avoid starvation
@@ -119,7 +120,6 @@ module l2cache #(
 
     // Stage 3 info
     general_info stage3;
-    // TODO Was a cache_line changed to cache_set seemed appropriate
     cache_set relevant_set;    // Info of cache set corresponding to address
     logic [NUM_WAYS-1:0] tag_comparison;    // Compare tags against current stage3 info
     logic [$clog2(NUM_WAYS)-1:0] forwarded_cache_line_index;
@@ -138,24 +138,20 @@ module l2cache #(
     general_info stage1;
 
     always_ff @(posedge clk_in) begin
-        logic sent_stage_5; // Keep track of if sent info to stage 5 yet
-        logic next_pending_evict;
-        logic can_query;
-        logic stall;    // Indicates whether or not to stall
         if(rst) begin
             l1_ready_for_input<=1'b1;
             l1_resp_valid <=1'b0;
-            cache <= 0;
-            mshrs <= 0;
-            unavailable_mshrs <= 0;
-            drain_mhsrs <= 0;
-            stage1 <= 0;
-            stage2 <= 0;
-            stage3 <= 0;
-            stage4 <= 0;
-            head_mshr <= 0;
-            tail_mshr <= 0;
-            current_drain_mshr <= 0;
+            cache <= '0;
+            mshrs <= '0;
+            unavailable_mshrs <= '0;
+            drain_mhsrs <= '0;
+            stage1 <= '0;
+            stage2 <= '0;
+            stage3 <= '0;
+            stage4 <= '0;
+            head_mshr <= '0;
+            tail_mshr <= '0;
+            current_drain_mshr <= '0;
             pending_evict <= 1'b0;
         end else begin
             // Stage 5: output
@@ -167,20 +163,26 @@ module l2cache #(
             // Update MSHR after receiving info from sdram
             if(sdram_resp_valid) begin
                 mshrs[head_mshr].queue[0].data <= sdram_resp_rdata;
-
-                // TODO: don't we need the old values for these?
-                mshrs[head_mshr].writes[0] <= 1'b1;
-                mshrs[head_mshr].reads[0] <= 1'b0;
                 drain_mhsrs[head_mshr] <= 1'b1;
             end
 
+            logic sent_stage_5; // Keep track of if sent info to stage 5 yet
             sent_stage_5=1'b0;
+
+            logic mshr_to_cache;    // Transitioning from mshr to cache
+            mshr_to_cache = 1'b0;
+            logic [BLOCK_SIZE*8-1:0] mshr_to_cache_data;
             // Check MSHRs for data to write to L1
             if(|drain_mhsrs) begin
                 // go to current_drain_mshr, drain next read. If no more reads, put last store into cache
                 // Also need to update current_drain_mshr, drain_mhsrs, unavailable_mshrs if no more reads
+                // TODO: just find LSB w/ a&(~a+1) to get LSB read, forward val of prev entry in q (or if 0, just forward own val)
+                
+                // If that is last read (check with ^), write into cache and clear MSHR (set to 0), also need to keep some logic to handle case where
+                // clearing MSHR  on same cycle as access to same mem location, need to forward the drained cache value in this case
+                // and also decide on what value should be put into cache next cycle.
+                // also in this case increment current_drain_mshr
                 logic [$clog2(NUM_MSHRS)-1:0] drain_idx;
-                logic found_drain;
                 logic [MSHR_QUEUE_SIZE-1:0] next_reads;
                 logic [MSHR_QUEUE_SIZE-1:0] next_writes;
                 logic [$clog2(NUM_SETS)-1:0] drain_set;
@@ -188,17 +190,6 @@ module l2cache #(
                 logic [$clog2(NUM_WAYS)-1:0] drain_way;
 
                 drain_idx = current_drain_mshr;
-                found_drain = drain_mhsrs[current_drain_mshr];
-                // find first drain idx
-                if(!found_drain) begin
-                    for(int m = 0; m < NUM_MSHRS; m++) begin
-                        if(!found_drain && drain_mhsrs[m]) begin
-                            drain_idx = m;
-                            found_drain = 1'b1;
-                        end
-                    end
-                end
-                current_drain_mshr <= drain_idx;
                 drain_set = mshrs[drain_idx].queue[0].addr[$clog2(NUM_SETS)-1:0];
                 drain_tag = mshrs[drain_idx].queue[0].addr[WORD_ADDR_SIZE-1:$clog2(NUM_SETS)];
                 drain_way = mshrs[drain_idx].cache_line_index;
@@ -237,6 +228,7 @@ module l2cache #(
                 end
             end
 
+            logic next_pending_evict;
             next_pending_evict = pending_evict;
             // If SDRAM accepts input, can move onto requesting next input
             if (sdram_req_valid && sdram_req_ready) begin
@@ -247,11 +239,19 @@ module l2cache #(
                 end
             end
             
-            // 1 if someone plans on querying SDRAM
+            // 1 if nobody else is querying SDRAM
+            logic can_query;
             can_query = 1'b1;
 
-            stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5)||next_pending_evict;
-            
+            logic eviction;
+            eviction = !cache_hit && cache[stage4.set_index].set[target_line].valid && cache[stage4.set_index].set[target_line].dirty;
+
+            logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
+            target_mshr = cache[stage4.set_index].set[target_line].mshr_index;
+            logic clearing_same_mshr;
+            clearing_same_mshr = (current_drain_mshr == target_mshr) && mshr_to_cache&&cache[stage4.set_index].set[target_line].in_mshr;
+            logic stall;    // Indicates whether or not to stall
+            stall=stage4.valid&&(!cache_hit&&available_mshrs == '0||!stage4.write&&sent_stage_5&&(cache_hit&&cache[stage4.set_index].set[target_line].valid||clearing_same_mshr)||eviction&&next_pending_evict);
             if(!stall) begin
                 // Stage 4: handling hit/miss and modifying cache
                 if (stage4.valid) begin
@@ -267,42 +267,35 @@ module l2cache #(
                             cache[stage4.set_index].grid[l][target_line] <= 1'b0;
                         end
                     end
-
-                    if (cache[stage4.set_index].set[target_line].in_mshr) begin
-                        // Add to MSHR unless if that MSHR done draining from code above,
-                        // in which case just read/write. Need to coordinate 
-                        logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
-                        logic [$clog2(MSHR_QUEUE_SIZE)-1:0] enqueue_idx;
-                        logic draining_same_mshr;
-                        logic [MSHR_QUEUE_SIZE-1:0] updated_reads;
-                        logic [MSHR_QUEUE_SIZE-1:0] updated_writes;
-                        mshr_entry new_entry;
-
-                        target_mshr = cache[stage4.set_index].set[target_line].mshr_index;
-                        draining_same_mshr = drain_mhsrs[target_mshr] && (current_drain_mshr == target_mshr);
-                        enqueue_idx = mshrs[target_mshr].tail;
-
-                        // If the mshr is being drained this cycle, the queue is shifted left first
-                        if(draining_same_mshr && (enqueue_idx != 0)) begin
-                            enqueue_idx = enqueue_idx - 1'b1;
-                        end
-
-                        new_entry.write = stage4.write;
-                        new_entry.addr = {stage4.tag, stage4.set_index};
-                        new_entry.data = stage4.write ? stage4.data : '0;
-                        new_entry.id = stage4.id;
-                        mshrs[target_mshr].queue[enqueue_idx] <= new_entry;
-                        
-                        updated_reads = draining_same_mshr ? (mshrs[target_mshr].reads >> 1) : mshrs[target_mshr].reads;
-                        updated_writes = draining_same_mshr ? (mshrs[target_mshr].writes >> 1) : mshrs[target_mshr].writes;
-                        updated_reads[enqueue_idx] = !stage4.write;
-                        updated_writes[enqueue_idx] = stage4.write;
-                        mshrs[target_mshr].reads <= updated_reads;
-                        mshrs[target_mshr].writes <= updated_writes;
-                        mshrs[target_mshr].tail <= enqueue_idx + 1'b1;
-                    end else begin
-                        cache[stage4.set_index].set[target_line].valid <= 1'b1;
+                    if (cache_hit&&cache[stage4.set_index].set[target_line].in_mshr) begin
                         if(stage4.write) begin
+                            cache[stage4.set_index].set[target_line].dirty <= 1'b1;
+                            if (clearing_same_mshr) begin
+                                mshr_to_cache_data = stage4.data;
+                            end else begin
+                                // Add to MSHR queue
+                                mshrs[target_mshr].queue[mshrs[target_mshr].tail].data <= stage4.data;
+                                mshrs[target_mshr].queue[mshrs[target_mshr].tail].id <= stage4.id;
+                                mshrs[target_mshr].latest_value <= stage4.data;
+                                mshrs[target_mshr].valid_value <= 1'b1;
+                                mshrs[target_mshr].tail <= mshrs[target_mshr].tail + 1;
+                            end
+                        end else begin
+                            if ((mshrs[target_mshr].valid_value||clearing_same_mshr)&&sent_stage_5) begin
+                                // Forward value
+                                sent_stage_5 <= 1'b1;
+                                l1_resp_data<=clearing_same_mshr?mshr_to_cache_data:mshrs[target_mshr].latest_value;
+                                l1_output_id <= stage4.id;
+                            end else begin
+                                // Add to MSHR queue
+                                mshrs[target_mshr].queue[mshrs[target_mshr].tail].id <= stage4.id;
+                                mshrs[target_mshr].reads[mshrs[target_mshr].tail] <= 1'b1;
+                                mshrs[target_mshr].tail <= mshrs[target_mshr].tail + 1;
+                            end
+                        end
+                    end else begin
+                        if(stage4.write) begin
+                            cache[stage4.set_index].set[target_line].valid <= 1'b1;
                             cache[stage4.set_index].set[target_line].dirty <= 1'b1;
                             cache[stage4.set_index].set[target_line].data <= stage4.data;
                         end else begin
@@ -312,16 +305,15 @@ module l2cache #(
                                 l1_resp_data <= cache[stage4.set_index].set[target_line].data;
                                 l1_output_id <= stage4.id;
                             end else begin
-                                // Read miss, put read into a new MSHR
-                                // Also need to write MSHR info into cache line
-                                mshrs[tail_mshr].queue[0].write <= 1'b0;
-                                mshrs[tail_mshr].queue[0].addr <= {stage4.tag, stage4.set_index};
-                                mshrs[tail_mshr].queue[0].data <= '0; // filled by sdram response
+                                // Read miss, put read into a new MSHR and reserve spot in cache line
+                                mshrs[tail_mshr].tag <= stage4.tag;
+                                mshrs[tail_mshr].set_index <= stage4.set_index;
                                 mshrs[tail_mshr].queue[0].id <= stage4.id;
-                                mshrs[tail_mshr].tail <= 1'b1;
-                                mshrs[tail_mshr].reads <= {{(MSHR_QUEUE_SIZE-1){1'b0}}, 1'b1};
-                                mshrs[tail_mshr].writes <= '0;
+                                mshrs[tail_mshr].tail <= mshrs[tail_mshr].tail + 1;
+                                mshrs[tail_mshr].reads[0] <= 1'b1;
                                 mshrs[tail_mshr].cache_line_index <= target_line;
+                                cache[stage4.set_index].set[target_line].valid <= 1'b0;
+                                cache[stage4.set_index].set[target_line].dirty <= 1'b0;
                                 cache[stage4.set_index].set[target_line].in_mshr <= 1'b1;
                                 cache[stage4.set_index].set[target_line].mshr_index <= tail_mshr;
                                 cache[stage4.set_index].set[target_line].tag <= stage4.tag;
@@ -329,8 +321,8 @@ module l2cache #(
                                 tail_mshr <= tail_mshr + 1;
                             end
                         end
-                        // Eviction
-                        if (!cache_hit && cache[stage4.set_index].set[target_line].valid && cache[stage4.set_index].set[target_line].dirty) begin
+
+                        if (eviction) begin
                             // Send eviction write to SDRAM
                             next_pending_evict = 1'b1;
                             can_query = 1'b0;
@@ -350,7 +342,7 @@ module l2cache #(
                     logic found_tag_match;
                     found_tag_match = |tag_comparison;
                     cache_hit <= forwarded_valid||found_tag_match;
-                    cache_line_index <= forwarded_valid?forwarded_cache_line_index:(found_tag_match?$clog2(tag_comparison):0);
+                    cache_line_index <= forwarded_valid?forwarded_cache_line_index:(found_tag_match?$clog2(tag_comparison):'0);
                 end
 
                 // Stage 2: get correct cache set
@@ -380,11 +372,15 @@ module l2cache #(
             end
 
             if (unavailable_mshrs^drain_mhsrs != 0 && can_query) begin
-                // Query info from a MSHR to SDRAM (make query using head_mshr info)
-                sdram_req_rw <= mshrs[head_mshr].queue[0].write;
-                sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[head_mshr].queue[0].addr, {OFFSET_SIZE{1'b0}}};
+                // Query read from a MSHR to SDRAM (make query using head_mshr info)
+                sdram_req_rw <= 1'b0;
+                sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[head_mshr].tag,mshrs[head_mshr].set_index, {OFFSET_SIZE{1'b0}}};
                 sdram_req_wdata <= mshrs[head_mshr].queue[0].data;
                 can_query = 1'b0;
+            end
+
+            if (mshr_to_cache) begin
+                cache[mshrs[current_drain_mshr].set_index].set[mshrs[current_drain_mshr].cache_line_index].data<= mshr_to_cache_data;
             end
 
             l1_ready_for_input <= !stall;
@@ -393,5 +389,4 @@ module l2cache #(
             sdram_req_valid <= !can_query;
         end
     end
-
 endmodule
