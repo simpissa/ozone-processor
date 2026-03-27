@@ -77,16 +77,79 @@ l1cache #() dut (
     .tlb_vaddr_valid(tlb_vaddr_valid)
 );
 
-initial begin
+  initial begin
     clk_in = 0;
     forever begin
-        #5 clk_in = ~clk_in;
+      #5 clk_in = ~clk_in;
     end
-end
+  end
+
+  task print_cache;
+    #1; 
+    $display("<----------------------------------- CACHE PINS IN ---------------------------------->");
+    $display("| %-4s | %-4s | %-5s | %-5s | %-14s | %-14s | %-18s |", "ST_V", "LD_V", "ST_ID", "LD_ID", "ST_ADDR", "LD_ADDR", "ST_DATA");
+    $display("| %-4b | %-4b | %-5d | %-5d | 0x%-12x | 0x%-12x | 0x%-16x |", storeValid, loadValid, store_id, load_id, store_vaddr, load_vaddr, store_data);
+
+    $display("<----------- LSQ PINS OUT ----------->");
+    $display("| %-3s | %-4s | %-4s | %-5s | %-5s |", "RDY", "ST_D", "LD_D", "ST_ID", "LD_ID");
+    $display("| %-3b | %-4b | %-4b | %-5d | %-5d |", l1ready, store_finished, load_finished, store_id_completed, load_id_completed);
+
+    $display("<------ TLB PINS OUT ----->");
+    $display("| %-6s | %-14s |", "ADDR_V", "ADDR");
+    $display("| %-6b | 0x%-12x |", tlb_vaddr_valid, tlb_vaddr_out);
+
+    $display("<----------------------- L2 PINS OUT ----------------------->");
+    $display("| %-5s | %-6s | %-10s | %-18s | %-6s |", "REQ_V", "REQ_ST", "REQ_ADDR", "REQ_DATA", "REQ_ID");
+    $display("| %-5b | %-6b | 0x%-8x | 0x%-16x | %-6d |", l2_req_valid, l2_req_rw, l2_req_paddr, l2_req_data, l2_query_id);
+    $display("|-----------------------------------------------------------------------------------------|\n");
+  endtask
 
 task test1;
     
 endtask
+
+initial begin 
+  @(negedge clk_in);
+
+  $display("\nBeginning l1 unit tests");
+  $display("Testing pipeline miss propogation\n");
+
+  $display("Initial state");
+  print_cache();
+
+  @(negedge clk_in);
+
+  $display("Present load at 0x1FFFFFFFFFFF. Should have tlb addr out");
+  loadValid = 1'b1;
+  load_id = 1;
+  load_vaddr = 48'h1FFFFFFFFFFF;
+  print_cache();
+
+  @(negedge clk_in);
+  $display("Second stage, should have the tlb data returned");
+  loadValid = 1'b0;
+  tlb_paddr_ready = 1'b1;
+  tlb_paddr_in = 30'h0FFFFFFF;
+  print_cache();
+
+  @(negedge clk_in);
+  $display("Third stage, should have output for l2 miss");
+  tlb_paddr_ready = 1'b0;
+  print_cache();
+
+  @(negedge clk_in);
+  $display("Should persist its stage since l2 cant accept");
+  print_cache();
+
+  @(negedge clk_in);
+  $display("Say l2 accepts");
+  l2_ready_for_resp = 1'b1;
+  print_cache();
+  @(negedge clk_in);
+  print_cache();
+
+
+end
 
 
 endmodule

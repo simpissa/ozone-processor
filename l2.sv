@@ -11,11 +11,6 @@ module l2cache #(
     parameter int MSHR_QUEUE_SIZE = 4,
     parameter int ID_LENGTH = 4
 ) (
-    localparam int OFFSET_SIZE = $clog2(BLOCK_SIZE);
-    localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
-    localparam int WORD_ADDR_SIZE = PADDR_W - OFFSET_SIZE;
-    localparam int TAG_SIZE = WORD_ADDR_SIZE-$clog2(NUM_SETS);
-
     input logic clk,
     input logic rst,
     
@@ -44,13 +39,18 @@ module l2cache #(
 
     // Answers from SDRAM. Always ready to receive answers from SDRAM
     input logic             sdram_resp_valid,
-    input logic [BLOCK_SIZE*8-1:0] sdram_resp_rdata,
+    input logic [BLOCK_SIZE*8-1:0] sdram_resp_rdata
 );
+    localparam int OFFSET_SIZE = $clog2(BLOCK_SIZE);
+    localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
+    localparam int WORD_ADDR_SIZE = PADDR_W - OFFSET_SIZE;
+    localparam int TAG_SIZE = WORD_ADDR_SIZE-$clog2(NUM_SETS);
+
     // Cache
     typedef struct packed {
         logic valid;
         logic dirty;
-        logic mshr; // Indicates if address currently in a MSHR
+        logic in_mshr; // Indicates if address currently in a MSHR
         logic [$clog2(NUM_MSHRS)-1:0] mshr_index;
         logic [TAG_SIZE-1:0] tag;
         logic [BLOCK_SIZE*8-1:0] data;
@@ -119,14 +119,15 @@ module l2cache #(
 
     // Stage 3 info
     general_info stage3;
-    cache_line relevant_set;    // Info of cache set corresponding to address
+    // TODO Was a cache_line changed to cache_set seemed appropriate
+    cache_set relevant_set;    // Info of cache set corresponding to address
     logic [NUM_WAYS-1:0] tag_comparison;    // Compare tags against current stage3 info
     logic [$clog2(NUM_WAYS)-1:0] forwarded_cache_line_index;
     logic forwarded_valid;
     genvar k;
     generate
         for(k=0;k<NUM_WAYS;k++) begin:compare_tags
-            assign tag_comparison[k] = (relevant_set.set[k].valid||relevant_set.set[k].mshr) && stage3.tag == relevant_set.set[k].tag;
+            assign tag_comparison[k] = (relevant_set.set[k].valid||relevant_set.set[k].in_mshr) && stage3.tag == relevant_set.set[k].tag;
         end
     endgenerate
 
@@ -137,6 +138,10 @@ module l2cache #(
     general_info stage1;
 
     always_ff @(posedge clk_in) begin
+        logic sent_stage_5; // Keep track of if sent info to stage 5 yet
+        logic next_pending_evict;
+        logic can_query;
+        logic stall;    // Indicates whether or not to stall
         if(rst) begin
             l1_ready_for_input<=1'b1;
             l1_resp_valid <=1'b0;
@@ -169,7 +174,6 @@ module l2cache #(
                 drain_mhsrs[head_mshr] <= 1'b1;
             end
 
-            logic sent_stage_5; // Keep track of if sent info to stage 5 yet
             sent_stage_5=1'b0;
             // Check MSHRs for data to write to L1
             if(|drain_mhsrs) begin
@@ -224,7 +228,7 @@ module l2cache #(
                     // write into cache
                     cache[drain_set].set[drain_way].valid <= 1'b1;
                     cache[drain_set].set[drain_way].dirty <= |mshrs[drain_idx].writes;
-                    cache[drain_set].set[drain_way].mshr <= 1'b0;
+                    cache[drain_set].set[drain_way].in_mshr <= 1'b0;
                     cache[drain_set].set[drain_way].mshr_index <= '0;
                     cache[drain_set].set[drain_way].tag <= drain_tag;
                     cache[drain_set].set[drain_way].data <= mshrs[drain_idx].queue[0].data;
@@ -233,7 +237,6 @@ module l2cache #(
                 end
             end
 
-            logic next_pending_evict;
             next_pending_evict = pending_evict;
             // If SDRAM accepts input, can move onto requesting next input
             if (sdram_req_valid && sdram_req_ready) begin
@@ -245,10 +248,8 @@ module l2cache #(
             end
             
             // 1 if someone plans on querying SDRAM
-            logic can_query;
             can_query = 1'b1;
 
-            logic stall;    // Indicates whether or not to stall
             stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5)||next_pending_evict;
             
             if(!stall) begin
@@ -267,7 +268,7 @@ module l2cache #(
                         end
                     end
 
-                    if (cache[stage4.set_index].set[target_line].mshr) begin
+                    if (cache[stage4.set_index].set[target_line].in_mshr) begin
                         // Add to MSHR unless if that MSHR done draining from code above,
                         // in which case just read/write. Need to coordinate 
                         logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
@@ -321,7 +322,7 @@ module l2cache #(
                                 mshrs[tail_mshr].reads <= {{(MSHR_QUEUE_SIZE-1){1'b0}}, 1'b1};
                                 mshrs[tail_mshr].writes <= '0;
                                 mshrs[tail_mshr].cache_line_index <= target_line;
-                                cache[stage4.set_index].set[target_line].mshr <= 1'b1;
+                                cache[stage4.set_index].set[target_line].in_mshr <= 1'b1;
                                 cache[stage4.set_index].set[target_line].mshr_index <= tail_mshr;
                                 cache[stage4.set_index].set[target_line].tag <= stage4.tag;
                                 unavailable_mshrs[tail_mshr] <= 1'b1;
