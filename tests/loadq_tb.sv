@@ -30,8 +30,6 @@ logic l1_req_ready;
 logic l1_resp_valid;
 logic [3:0] l1_resp_id;
 logic [63:0] l1_resp_data;
-logic l1_nack;
-logic tlb_fill;
 
 logic load_complete_valid;
 logic [3:0] load_complete_id;
@@ -62,8 +60,6 @@ load_queue #(.LQ_SIZE(8), .ID_W(4)) lq (
     .l1_resp_valid(l1_resp_valid),
     .l1_resp_id(l1_resp_id),
     .l1_resp_data(l1_resp_data),
-    .l1_nack(l1_nack),
-    .tlb_fill(tlb_fill),
     .load_complete_valid(load_complete_valid),
     .load_complete_id(load_complete_id),
     .load_complete_data(load_complete_data)

@@ -50,13 +50,8 @@ module l1cache #(
   // tlb params
   input logic [PADDR_W-1:0] tlb_paddr_in,
   input logic tlb_paddr_ready,
-  input logic tlb_paddr_hit,
   output logic [VADDR_W-1:0] tlb_vaddr_out,
-  output logic tlb_vaddr_valid,
-
-  // nack on TLB miss, lsq retries after TLB fill
-  output logic load_nack,
-  output logic store_nack
+  output logic tlb_vaddr_valid
 );
 
   localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
@@ -127,9 +122,6 @@ module l1cache #(
   endtask
 
   logic stage2_blocked, stage3_blocked;
-  logic stage2_can_fire, stage2_tlb_miss;
-  logic stage1_can_accept;
-  logic stage3_l2_full_block, stage3_mshr_block;
 
   stage2_info stage2;
   stage3_info stage3;
@@ -154,9 +146,9 @@ module l1cache #(
   always_comb begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
-
+    
     tlb_vaddr_out = '0;
-    if(~stage3_blocked & stage1_can_accept) begin
+    if(~stage3_blocked & ~stage2_blocked) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
     end
@@ -175,7 +167,7 @@ module l1cache #(
   / Stage 2 Pipeline
   */
   always_ff @(posedge clk) begin
-    if(stage1_can_accept & ~stage3_blocked) begin
+    if(~stage3_blocked && ~stage2_blocked) begin
       stage2.data_set <= data_arr[set_index];
       stage2.tag_set <= tag_arr[set_index];
       stage2.set_index <= set_index;
@@ -189,9 +181,8 @@ module l1cache #(
       end else begin
         stage2.instr_id <= load_id;
       end
-    end else if(stage2_tlb_miss) begin
-      // TLB miss, discard stage2, lq/sq retry after TLB fill
-      stage2.valid <= 1'b0;
+    end else begin
+      // stage2.valid <= 1'b0;
     end
   end
 
@@ -206,14 +197,7 @@ module l1cache #(
   logic miss;
 
   assign paddr_tag = tlb_paddr_in[PADDR_W-1:$clog2(NUM_SETS) + $clog2(BLOCK_SIZE)];
-
-  assign stage2_can_fire = tlb_paddr_ready & tlb_paddr_hit & stage2.valid & ~stage3_blocked; // TLB hit
-  assign stage2_tlb_miss = tlb_paddr_ready & ~tlb_paddr_hit & stage2.valid; // TLB miss, discard
-  assign stage2_blocked  = stage2.valid & ~stage2_can_fire & ~stage2_tlb_miss; // stall stage 2
-  assign stage1_can_accept = ~stage2.valid | stage2_can_fire | stage2_tlb_miss; // stage 2 is free next cycle
-
-  assign load_nack  = stage2_tlb_miss & ~stage2.is_store;
-  assign store_nack = stage2_tlb_miss &  stage2.is_store;
+  assign stage2_blocked = (~tlb_paddr_ready & stage2.valid) | stage3_blocked;
 
   always_comb begin
     miss = 1'b1;
@@ -221,9 +205,9 @@ module l1cache #(
     tag_sel = 0;
     data_sel = 0;
     way_index = 0;
-    if(stage2_can_fire) begin
+    if(~stage2_blocked) begin
       for(int i = 0; i < NUM_WAYS; i++) begin
-        tag_comps[i] = stage2.tag_set.valid[i] & (stage2.tag_set.data[i] == paddr_tag);
+        tag_comps[i] = stage2.tag_set.data[i] == paddr_tag;
         if(tag_comps[i]) begin
           tag_sel = stage2.tag_set.data[i];
           way_index = ($clog2(NUM_WAYS))'(i);
@@ -239,7 +223,7 @@ module l1cache #(
   / Stage 3 Pipeline
   */
   always_ff @(posedge clk) begin
-    if(stage2_can_fire) begin
+    if(~stage2_blocked & ~stage3_blocked) begin
       stage3.data <= data_sel;
       stage3.tag <= paddr_tag;
       stage3.vaddr <= stage2.vaddr;
@@ -252,8 +236,6 @@ module l1cache #(
       stage3.set_index <= stage2.set_index;
       stage3.block_offset <= stage2.block_offset;
       stage3.instr_id <= stage2.instr_id;
-    end else if(stage2_tlb_miss) begin
-      stage3.valid <= 1'b0;
     end else begin
       // stage3.valid <= 1'b0;
     end
@@ -305,13 +287,11 @@ module l1cache #(
     store_finished = 1'b0;
     load_finished = 1'b0;
     data_out = stage3.data;
-    data_valid = 1'b0;
     l2_req_valid = 1'b0;
     load_id_completed = '0;
     store_id_completed = '0;
 
     l2_req_paddr = '0;
-    l2_req_data = '0;
     l2_query_id = '0;
 
     stage3_l2_full_block = (~l2_ready_for_resp & stage3.valid & stage3.miss);
@@ -335,10 +315,10 @@ module l1cache #(
         // Presumably only handle loads since stores are handled in ff
         load_finished = 1'b1;
         data_out = stage3.data;
-        load_id_completed = stage3.instr_id;
+        load_id_completed = id_instr_completed;
       end else begin
         store_finished = 1'b1;
-        store_id_completed = stage3.instr_id;
+        store_id_completed = id_instr_completed;
       end
     end else if(stage3.valid & l2_ready_for_resp) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
@@ -348,8 +328,6 @@ module l1cache #(
     end else begin
       // Presumably output invalid
     end
-
-    data_valid = load_finished;
   end
 
   logic[$clog2(NUM_SETS)-1:0] l2_paddr_set = l2_paddr[$clog2(NUM_SETS)-1:0];

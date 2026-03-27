@@ -37,11 +37,6 @@ module load_queue #(
     input  logic [3:0]   l1_resp_id,
     input  logic [63:0]  l1_resp_data,
 
-    // TLB miss nack from l1, retry after TLB fill
-    input  logic         l1_nack,
-    // TLB fill, clear tlb_pending so nacked loads can retry
-    input  logic         tlb_fill,
-
     // Completion output (load finished)
     output logic         load_complete_valid,
     output logic [3:0]   load_complete_id,
@@ -60,7 +55,6 @@ typedef struct packed {
     logic addr_valid;
     logic issued;
     logic conflict;
-    logic tlb_pending;  // waiting for TLB fill before retry
     logic completed;
     logic [63:0] data;
 } lq_entry;
@@ -103,7 +97,6 @@ initial begin
         queue[i].issued    = 0;
         queue[i].conflict  = 0;
         queue[i].completed = 0;
-        queue[i].tlb_pending = 0;
         id_map[i]          = INVALID_IDX;
     end
 
@@ -131,7 +124,6 @@ always_ff @(posedge clk) begin
             queue[i].issued     <= 1'b0;
             queue[i].conflict   <= 1'b0;
             queue[i].completed  <= 1'b0;
-            queue[i].tlb_pending <= 1'b0;
             queue[i].data       <= 64'b0;
             id_map[i]           <= INVALID_IDX;
         end
@@ -167,7 +159,6 @@ always_ff @(posedge clk) begin
                 queue[tail].age         <= trace_age;
                 queue[tail].issued      <= 0;
                 queue[tail].conflict    <= 0;
-                queue[tail].tlb_pending <= 0;
                 queue[tail].completed   <= 0;
                 queue[tail].valid       <= 1;
 
@@ -189,13 +180,6 @@ always_ff @(posedge clk) begin
             for (int i = 0; i < LQ_SIZE; ++i) begin
                 queue[i].conflict <= 0;
             end
-        end
-    end
-
-    // TLB fill, clear all tlb_pending flags so nacked loads can retry TODO: only clear the entry that missed
-    if (tlb_fill) begin
-        for (int i = 0; i < LQ_SIZE; ++i) begin
-            queue[i].tlb_pending <= 1'b0;
         end
     end
 
@@ -261,14 +245,7 @@ always_ff @(posedge clk) begin
 
     if (issue_cache) begin
         // we issued to the cache, waiting for a response
-        if (l1_nack) begin
-            // TLB miss, unissue and block entry until tlb_pending is cleared
-            queue[issue_idx].issued <= 1'b0;
-            queue[issue_idx].tlb_pending <= 1'b1;
-            issue_cache <= 0;
-            waiting_issue <= 1;
-            l1_req_valid <= 0;
-        end else if (l1_resp_valid) begin
+        if (l1_resp_valid) begin
             assert(queue[issue_idx].id == l1_resp_id)
 
             queue[issue_idx].completed <= 1;
@@ -297,7 +274,6 @@ always_ff @(posedge clk) begin
         queue[head].valid <= 0; 
         queue[head].issued <= 0;
         queue[head].conflict <= 0;
-        queue[head].tlb_pending <= 0;
         queue[head].completed <= 0;
         head <= head + 1;
 
@@ -315,8 +291,7 @@ end
 always_comb begin
     for (int i = 0; i < LQ_SIZE; ++i) begin
         ready[i] = queue[i].valid && queue[i].addr_valid 
-                && !queue[i].issued && !queue[i].conflict
-                && !queue[i].tlb_pending;
+                && !queue[i].issued && !queue[i].conflict;
     end
 
    /*
