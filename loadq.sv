@@ -192,7 +192,7 @@ always_ff @(posedge clk) begin
         end
     end
 
-    // TLB fill, clear all tlb_pending flags so nacked loads can retry
+    // TLB fill, clear all tlb_pending flags so nacked loads can retry TODO: only clear the entry that missed
     if (tlb_fill) begin
         for (int i = 0; i < LQ_SIZE; ++i) begin
             queue[i].tlb_pending <= 1'b0;
