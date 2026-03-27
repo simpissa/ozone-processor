@@ -1,3 +1,5 @@
+`timescale 1ns / 1ps
+
 module l1cache #(
 	parameter int VADDR_W = 48,
   parameter int PADDR_W = 30,
@@ -31,12 +33,15 @@ module l1cache #(
   output logic [PADDR_W-6-1:0] l2_req_paddr, // physical addr associated w/ request
   output logic [511:0] l2_req_data, // data for write request
   output logic [ID_LENGTH-1:0] l2_query_id, // id on request 
-  input logic l2_ready_for_resp, // is l1 ready for l2 response
+  output logic l2_evict_valid,
+  output logic [511:0] l2_evict_data,
+  input logic l2_ready_for_resp, // is l2 ready for l1 request? the name contradicts with the fact this is an input imo
 
   // L2 Response
   input logic l2_resp_valid,
   input logic [511:0] l2_resp_data,
   input logic [ID_LENGTH-1:0] l2_resp_id,
+  input logic [PADDR_W-1:0] l2_paddr,
 
 
   // tlb params
@@ -88,8 +93,32 @@ module l1cache #(
     logic[ID_LENGTH-1:0] instr_id;
   } stage3_info;
 
+  
   data_arr_set data_arr[NUM_SETS-1:0];
   tag_arr_set tag_arr[NUM_SETS-1:0];
+
+  task print_cache;
+    $display("<------------------------------------- CACHE STATE --------------------------------------->\n");
+    $display("|-----------------------------------------------------------------------------------------|");
+    for (int i = 0; i < NUM_WAYS; ++i) begin
+      $write("| %1s | %1s | %3s | %-7s | %-18s ", "V", "D", "LRU", "Tag", "Data");
+    end
+    $display("|");
+    $display("|-----------------------------------------------------------------------------------------|");
+    for (int i = 0; i < NUM_SETS; ++i) begin
+      for (int j = 0; j < NUM_WAYS; ++j) begin
+        $write("| %1b | %1b |  %1b  | 0x%05x | 0x%016x ", 
+            tag_arr[i].valid[i],
+            tag_arr[i].dirty[j],
+            tag_arr[i].lru == 1'(j) ? 0'b1 : 0'b0,
+            tag_arr[i].data[j],
+            data_arr[i].data[j]
+        );  
+      end
+      $display("|");
+    end
+    $display("|-----------------------------------------------------------------------------------------|");
+  endtask
 
   data_arr_set stage1_data_set;
   tag_arr_set stage1_tag_set;
@@ -106,6 +135,8 @@ module l1cache #(
     // TODO initialize all data to 0
     // data_arr = 0;
     // tag_arr = 0;
+
+    print_cache();
   end
 
   /**
@@ -225,7 +256,7 @@ module l1cache #(
           .id_in(stage3.instr_id),
           .miss(stage3.miss),
           .valid(stage3.valid),
-          .l2_completed(l2_data_valid),
+          .l2_completed(l2_resp_valid),
           .l2_paddr(l2_paddr),
           .is_store(stage3.is_store),
           .stall(should_stall_mshr),
@@ -236,7 +267,6 @@ module l1cache #(
           .is_store_out(mshr_is_store_out)
         );
 
-  assign l2_miss_out = stage3.miss;
   assign stage3_blocked = should_stall_mshr;
 
   /*
@@ -273,8 +303,8 @@ module l1cache #(
       // Output hit
       if(~stage3.is_store) begin
         // Presumably only handle loads since stores are handled in ff
-        data_valid <= 1'b1;
-        data_out <= stage3.data;
+        data_valid = 1'b1;
+        data_out = stage3.data;
       end
     end else if(stage3.valid) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
@@ -291,11 +321,11 @@ module l1cache #(
   always_ff @(posedge clk) begin
     // Update cache with normal state if not updating with l2
     // l2 should take priority with updating if on a miss, use mshr to determine
-    if(l2_data_valid) begin
+    if(l2_resp_valid) begin
       // Bring in the data into the cache, have seperate logic for outputting instrs
       // from mshr
       // lru way 0, evict and make 1 lru
-      l2_write_back_valid <= 1'b0;
+      l2_evict_valid <= 1'b0;
 
       if(way_evicted == 1'b0) begin
         tag_arr[l2_paddr_set].lru <= 1'b1;
@@ -304,11 +334,11 @@ module l1cache #(
       end
       // Output line if dirty to update l2
       if(tag_arr[l2_paddr_set].dirty[way_evicted]) begin
-        l2_write_back_valid <= 1'b1;
-        l2_write_back <= data_arr[l2_paddr_set].data[way_evicted];
+        l2_evict_valid <= 1'b1;
+        l2_evict_data <= data_arr[l2_paddr_set].data[way_evicted];
       end
       // Store l2 data in cache and set to clean and valid
-      data_arr[l2_paddr_set].data[way_evicted] <= l2_data_in;
+      data_arr[l2_paddr_set].data[way_evicted] <= l2_resp_data;
       tag_arr[l2_paddr_set].data[way_evicted] <= l2_paddr_tag;
       tag_arr[l2_paddr_set].dirty[way_evicted] <= 1'b0;
       tag_arr[l2_paddr_set].valid[way_evicted] <= 1'b1;
