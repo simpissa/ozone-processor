@@ -37,25 +37,36 @@ module store_queue #(parameter int SQ_SIZE=8)(
     // Interacting with L1 cache
     output logic [47:0] write_vaddr,
     output logic [63:0] write_value,
+    output logic [3:0] write_id,
     input logic ready_in,
+    input logic nack_in,
+    input logic finished_in, // l1 finished
+
+    input logic tlb_fill,
     output logic valid_out
-);
+);  
     st_entry SQ [SQ_SIZE];
 
     logic [$clog2(SQ_SIZE)-1:0] sq_head;
     logic [$clog2(SQ_SIZE)-1:0] sq_tail;
 
     logic receive_new_data;
-    logic write_new_data;    
+    logic issue_store;
+    logic pop_store;
+    logic [SQ_SIZE-1:0] issued;
+    logic [SQ_SIZE-1:0] tlb_pending;
 
-    assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
+    assign ready_out = (curr_entries != {SQ_SIZE{1'b1}}) | resolve | pop_store;
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
-    assign valid_out = (curr_entries=={SQ_SIZE{1'b1}}|curr_entries!={SQ_SIZE{1'b0}}&age-SQ[sq_head].age>=16)&!curr_unresolved[sq_head];
-    assign write_new_data = valid_out & ready_in;
+    assign valid_out = ((curr_entries == {SQ_SIZE{1'b1}}) | ((curr_entries != {SQ_SIZE{1'b0}}) & (age - SQ[sq_head].age >= 16)))
+                        & !curr_unresolved[sq_head] & !issued[sq_head] & !tlb_pending[sq_head];
+    assign issue_store = valid_out & ready_in;
+    assign pop_store = finished_in & curr_entries[sq_head];
     assign write_vaddr = SQ[sq_head].trace_vaddr;
     assign write_value = SQ[sq_head].trace_value;
+    assign write_id = SQ[sq_head].trace_id;
 
     logic [SQ_SIZE-1:0] tag_matching;
 
@@ -64,7 +75,28 @@ module store_queue #(parameter int SQ_SIZE=8)(
         if(rst) begin
             sq_head<=0;
             sq_tail<=0;
+            tailmask <= '0;
+            for (int i = 0; i < SQ_SIZE; ++i) begin
+                curr_entries[i] <= 1'b0;
+                issued[i] <= 1'b0;
+                tlb_pending[i] <= 1'b0;
+                SQ[i] <= '0;
+            end
         end else begin
+            if (tlb_fill) begin
+                // TODO: same as loadq, should only clear entry being filled
+                for (int i = 0; i < SQ_SIZE; ++i) begin
+                    tlb_pending[i] <= 1'b0;
+                end
+            end
+
+            if(pop_store) begin
+                curr_entries[sq_head] <= 1'b0;
+                issued[sq_head] <= 1'b0;
+                tlb_pending[sq_head] <= 1'b0;
+                sq_head <= sq_head + 1;
+            end
+
             if(receive_new_data) begin
                 if(resolve) begin
                     if(tag_matching != {SQ_SIZE{1'b0}}) begin
@@ -78,13 +110,9 @@ module store_queue #(parameter int SQ_SIZE=8)(
                         SQ[addr].trace_value<=trace_value;
                     end
                 end else begin
-                    if(write_new_data) begin
-                        if(sq_head != sq_tail) begin
-                            curr_entries[sq_head]<=1'b0;
-                        end
-                        sq_head<=sq_head+1;
-                    end
                     curr_entries[sq_tail] <= 1'b1;
+                    issued[sq_tail] <= 1'b0;
+                    tlb_pending[sq_tail] <= 1'b0;
                     SQ[sq_tail].trace_id<=trace_id;
                     SQ[sq_tail].trace_vaddr<=trace_vaddr;
                     SQ[sq_tail].trace_vaddr_is_valid<=trace_vaddr_is_valid;
@@ -98,9 +126,15 @@ module store_queue #(parameter int SQ_SIZE=8)(
                         tailmask[sq_tail] <= 1'b1;
                     end
                 end
-            end else if(write_new_data) begin
-                curr_entries[sq_head]<=1'b0;
-                sq_head<=sq_head+1;
+            end
+
+            if(issue_store) begin
+                issued[sq_head] <= 1'b1;
+            end
+
+            if(nack_in && curr_entries[sq_head]) begin
+                issued[sq_head] <= 1'b0;
+                tlb_pending[sq_head] <= 1'b1;
             end
         end
     end

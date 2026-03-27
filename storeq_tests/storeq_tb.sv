@@ -35,7 +35,11 @@ module storeq_tb #(parameter int SQ_SIZE = 8) ();
     // Interacting with L1 cache
     logic [47:0] write_vaddr;
     logic [63:0] write_value;
+    logic [3:0] write_id;
     logic ready_in;
+    logic nack_in;
+    logic finished_in;
+    logic tlb_fill;
     logic valid_out;
 
     store_queue #(.SQ_SIZE(SQ_SIZE)) asdf (
@@ -68,7 +72,11 @@ module storeq_tb #(parameter int SQ_SIZE = 8) ();
         // Interacting with L1 cache
         .write_vaddr(write_vaddr),
         .write_value(write_value),
+        .write_id(write_id),
         .ready_in(ready_in),
+        .nack_in(nack_in),
+        .finished_in(finished_in),
+        .tlb_fill(tlb_fill),
         .valid_out(valid_out)
     );
 

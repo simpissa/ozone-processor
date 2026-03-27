@@ -96,6 +96,16 @@ module mem_top #(
     logic [63:0] l1_resp_data;
     logic l1_load_nack;
     logic l1_store_nack;
+    logic sq_l1_valid;
+    logic [VADDR_W-1:0] sq_l1_vaddr;
+    logic [63:0] sq_l1_value;
+    logic [ID_W-1:0] sq_l1_id;
+    logic sq_l1_ready;
+    logic l1_store_finished;
+    logic [ID_W-1:0] l1_store_id;
+    logic l1_core_ready;
+    logic l1_issue_load;
+    logic l1_issue_store;
 
     logic tlb_lookup_valid;
     logic [VADDR_W-1:0] tlb_lookup_vaddr;
@@ -153,6 +163,13 @@ module mem_top #(
     assign raw_trace_is_resolve = trace_pending && (trace_op == OP_MEM_RESOLVE);
     assign sq_search_addr = lq_sq_query_addr;
     assign sq_load_age = lq_sq_query_age;
+    assign commit_valid = 1'b0;
+    assign commit_vaddr = '0;
+    assign commit_value = '0;
+    assign l1_issue_store = sq_l1_valid;
+    assign l1_issue_load = l1_req_valid & ~l1_issue_store;
+    assign sq_l1_ready = l1_issue_store & l1_core_ready;
+    assign l1_req_ready = l1_issue_load & l1_core_ready;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -266,10 +283,14 @@ module mem_top #(
         .found(sq_found),
         .resolved(sq_resolved),
         .search_value(sq_search_value),
-        .write_vaddr(commit_vaddr),
-        .write_value(commit_value),
-        .ready_in(commit_ready),
-        .valid_out(commit_valid)
+        .write_vaddr(sq_l1_vaddr),
+        .write_value(sq_l1_value),
+        .write_id(sq_l1_id),
+        .ready_in(sq_l1_ready),
+        .nack_in(l1_store_nack),
+        .finished_in(l1_store_finished),
+        .tlb_fill(tlb_fill_valid),
+        .valid_out(sq_l1_valid)
     );
 
     tlb #(
@@ -304,17 +325,17 @@ module mem_top #(
         .clk(clk),
         .reset(rst),
         .load_vaddr(l1_req_vaddr),
-        .store_vaddr(commit_vaddr),
-        .loadValid(l1_req_valid),
+        .store_vaddr(sq_l1_vaddr),
+        .loadValid(l1_issue_load),
         .load_id(l1_req_id),
-        .storeValid(commit_valid),
-        .store_data(),
-        .store_id(),
+        .storeValid(l1_issue_store),
+        .store_data(sq_l1_value),
+        .store_id(sq_l1_id),
         .load_id_completed(l1_resp_id),
-        .store_id_completed(),
-        .store_finished(),
+        .store_id_completed(l1_store_id),
+        .store_finished(l1_store_finished),
         .load_finished(l1_resp_valid),
-        .l1ready(l1_req_ready),
+        .l1ready(l1_core_ready),
         .data_out(l1_resp_data),
         .data_valid(),
         .l2_req_valid(),
