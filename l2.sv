@@ -38,7 +38,8 @@ module l2cache #(
     output  logic           sdram_req_valid,
     input   logic           sdram_req_ready,
     output  logic           sdram_req_rw,          // 0 = read line, 1 = write line
-    output  logic [WORD_ADDR_SIZE-1:0]  sdram_req_addr,        // byte address
+    // prob easier to make this constant and pack to byte address with 0s
+    output  logic [31:0]  sdram_req_addr,        // byte address 
     output  logic [BLOCK_SIZE*8-1:0] sdram_req_wdata,       // one full cache line
 
     // Answers from SDRAM. Always ready to receive answers from SDRAM
@@ -161,6 +162,8 @@ module l2cache #(
             // Update MSHR after receiving info from sdram
             if(sdram_resp_valid) begin
                 mshrs[head_mshr].queue[0].data <= sdram_resp_rdata;
+
+                // don't we need the old values for these?
                 mshrs[head_mshr].writes[0] <= 1'b1;
                 mshrs[head_mshr].reads[0] <= 1'b0;
                 drain_mhsrs[head_mshr] <= 1'b1;
@@ -170,9 +173,64 @@ module l2cache #(
             sent_stage_5=1'b0;
             // Check MSHRs for data to write to L1
             if(|drain_mhsrs) begin
-                sent_stage_5 = 1'b1;
                 // TODO: go to current_drain_mshr, drain next read. If no more reads, put last store into cache
                 // Also need to update current_drain_mshr, drain_mhsrs, unavailable_mshrs if no more reads
+                logic [$clog2(NUM_MSHRS)-1:0] drain_idx;
+                logic found_drain;
+                logic [MSHR_QUEUE_SIZE-1:0] next_reads;
+                logic [MSHR_QUEUE_SIZE-1:0] next_writes;
+                logic [$clog2(NUM_SETS)-1:0] drain_set;
+                logic [TAG_SIZE-1:0] drain_tag;
+                logic [$clog2(NUM_WAYS)-1:0] drain_way;
+
+                drain_idx = current_drain_mshr;
+                found_drain = drain_mhsrs[current_drain_mshr];
+                // find first drain idx
+                if(!found_drain) begin
+                    for(int m = 0; m < NUM_MSHRS; m++) begin
+                        if(!found_drain && drain_mhsrs[m]) begin
+                            drain_idx = m;
+                            found_drain = 1'b1;
+                        end
+                    end
+                end
+                current_drain_mshr <= drain_idx;
+                drain_set = mshrs[drain_idx].queue[0].addr[$clog2(NUM_SETS)-1:0];
+                drain_tag = mshrs[drain_idx].queue[0].addr[WORD_ADDR_SIZE-1:$clog2(NUM_SETS)];
+                drain_way = mshrs[drain_idx].cache_line_index;
+
+                // drain read and shift everything
+                if(mshrs[drain_idx].reads[0]) begin
+                    // send to stage 5
+                    sent_stage_5 = 1'b1;
+                    l1_resp_data <= mshrs[drain_idx].queue[0].data;
+                    l1_output_id <= mshrs[drain_idx].queue[0].id;
+                end
+                for(int q = 0; q < MSHR_QUEUE_SIZE-1; q++) begin
+                    mshrs[drain_idx].queue[q] <= mshrs[drain_idx].queue[q+1];
+                end
+                mshrs[drain_idx].queue[MSHR_QUEUE_SIZE-1] <= '0;
+
+                next_reads = mshrs[drain_idx].reads >> 1;
+                next_writes = mshrs[drain_idx].writes >> 1;
+                mshrs[drain_idx].reads <= next_reads;
+                mshrs[drain_idx].writes <= next_writes;
+
+                if(mshrs[drain_idx].tail != 0) begin
+                    mshrs[drain_idx].tail <= mshrs[drain_idx].tail - 1'b1;
+                end
+
+                if((next_reads | next_writes) == 0) begin
+                    // write into cache
+                    cache[drain_set].set[drain_way].valid <= 1'b1;
+                    cache[drain_set].set[drain_way].dirty <= |mshrs[drain_idx].writes;
+                    cache[drain_set].set[drain_way].mshr <= 1'b0;
+                    cache[drain_set].set[drain_way].mshr_index <= '0;
+                    cache[drain_set].set[drain_way].tag <= drain_tag;
+                    cache[drain_set].set[drain_way].data <= mshrs[drain_idx].queue[0].data;
+                    drain_mhsrs[drain_idx] <= 1'b0;
+                    unavailable_mshrs[drain_idx] <= 1'b0;
+                end
             end
 
             logic next_pending_evict;
@@ -188,6 +246,7 @@ module l2cache #(
             
             // 1 if someone plans on querying SDRAM
             logic can_query;
+            can_query = 1'b1;
 
             logic stall;    // Indicates whether or not to stall
             stall=stage4.valid&&(!cache_hit&&available_mshrs == 0||cache_hit&&sent_stage_5)||next_pending_evict;
@@ -237,7 +296,7 @@ module l2cache #(
                             next_pending_evict = 1'b1;
                             can_query = 1'b0;
                             sdram_req_rw <= 1'b1;
-                            sdram_req_addr <= {cache[stage4.set_index].set[target_line].tag,stage4.set_index};
+                            sdram_req_addr <= {{(32-PADDR_W){1'b0}}, cache[stage4.set_index].set[target_line].tag, stage4.set_index, {OFFSET_SIZE{1'b0}}};
                             sdram_req_wdata <= cache[stage4.set_index].set[target_line].data;
                         end
                     end
@@ -282,7 +341,10 @@ module l2cache #(
             end
 
             if (unavailable_mshrs^drain_mhsrs != 0 && can_query) begin
-                // Query info from a MSHR to SDRAM (make query using head_mshr info) TODO
+                // Query info from a MSHR to SDRAM (make query using head_mshr info)
+                sdram_req_rw <= mshrs[head_mshr].queue[0].write;
+                sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[head_mshr].queue[0].addr, {OFFSET_SIZE{1'b0}}};
+                sdram_req_wdata <= mshrs[head_mshr].queue[0].data;
                 can_query = 1'b0;
             end
 
