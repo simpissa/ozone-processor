@@ -5,14 +5,17 @@ module test();
 logic clk_in;
 logic reset;
 
-logic [47:0] vaddr;
+logic [47:0] load_vaddr;
+logic [47:0] store_vaddr;
 logic loadValid;
-logic [2:0] load_id;
-logic [2:0] store_id;
+logic [3:0] load_id;
+logic [3:0] store_id;
 logic storeValid;
 logic [63:0] store_data;
-logic [2:0] load_id_completed;
-logic [2:0] store_id_completed;
+logic [3:0] load_id_completed;
+logic [3:0] store_id_completed;
+logic store_finished;
+logic load_finished;
 
 logic l1ready;
 logic [63:0] data_out;
@@ -22,16 +25,16 @@ logic l2_req_valid;
 logic l2_req_rw;
 logic [23:0] l2_req_paddr;
 
-logic [511:0] l2_req_data;
-logic [2:0] l2_query_id;
+logic [63:0] l2_req_data;
+logic [3:0] l2_query_id;
 logic l2_evict_valid;
 logic [511:0] l2_evict_data;
 logic l2_ready_for_resp;
 
 logic l2_resp_valid;
 logic [511:0] l2_resp_data;
-logic [2:0] l2_resp_id;
-logic [29:0] l2_paddr;
+logic [3:0] l2_resp_id;
+logic [23:0] l2_paddr;
 
 logic [29:0] tlb_paddr_in;
 logic tlb_paddr_ready;
@@ -42,7 +45,8 @@ logic tlb_vaddr_valid;
 l1cache #() dut (
     .clk(clk_in),
     .reset(reset),
-    .vaddr(vaddr),
+    .load_vaddr(load_vaddr),
+    .store_vaddr(store_vaddr),
     .loadValid(loadValid),
     .load_id(load_id),
     .store_id(store_id),
@@ -50,6 +54,8 @@ l1cache #() dut (
     .store_data(store_data),
     .load_id_completed(load_id_completed),
     .store_id_completed(store_id_completed),
+    .store_finished(store_finished),
+    .load_finished(load_finished),
     .l1ready(l1ready),
     .data_out(data_out),
     .data_valid(data_valid),

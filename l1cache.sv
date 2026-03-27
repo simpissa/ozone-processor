@@ -146,6 +146,10 @@ module l1cache #(
   always_comb begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
+    
+    // TODO: had to add this so that it would compile (needs to assign every time),
+    // but I imagine it could lead to some problems. So, someone needs to check
+    tlb_vaddr_out = '0;
     if(~stage3_blocked & ~stage2_blocked) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
@@ -286,8 +290,12 @@ module l1cache #(
     load_finished = 1'b0;
     data_out = stage3.data;
     l2_req_valid = 1'b0;
-    load_id_completed = 1'b0;
-    store_id_completed = 1'b0;
+    load_id_completed = '0;
+    store_id_completed = '0;
+
+    // TODO: add this to compile. make sure this doesn't introduce bugs
+    l2_req_paddr = '0;
+    l2_query_id = '0;
 
     stage3_blocked = mshr_out_valid | mshr_should_stall;
     if(mshr_out_valid) begin
@@ -316,8 +324,12 @@ module l1cache #(
     end else if(stage3.valid) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
       l2_req_valid = 1'b1;
-      l2_req_paddr = stage3.paddr;
-      l2_query_id = stage3.id;
+
+      // TODO: added slice. is this correct? 
+      l2_req_paddr = stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)];
+
+      // TODO: this was originally stage.id, which doesn't exist. is this correct?
+      l2_query_id = stage3.instr_id;
     end else begin
       // Presumably output invalid
     end
@@ -485,8 +497,8 @@ module mshr#(
   
   // Stall if we should be draining or if we are full and have another miss
   assign stall = draining | 
-                (miss & valid & ~match_made & (num_entries_taken == NUM_ENTRYS) | 
-                (miss & valid & match_made & (entries[match_index].count == QUEUE_SIZE)));
+                (miss & valid & ~match_made & (32'(num_entries_taken) == NUM_ENTRYS) | 
+                (miss & valid & match_made & (32'(entries[match_index].count) == QUEUE_SIZE)));
 
   assign id_out = entries[drain_index].queue[entries[drain_index].head].id;
   assign write_out = entries[drain_index].queue[entries[drain_index].head].store_val;
