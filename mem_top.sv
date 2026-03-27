@@ -94,10 +94,13 @@ module mem_top #(
     logic l1_resp_valid;
     logic [ID_W-1:0] l1_resp_id;
     logic [63:0] l1_resp_data;
+    logic l1_load_nack;
+    logic l1_store_nack;
 
     logic tlb_lookup_valid;
     logic [VADDR_W-1:0] tlb_lookup_vaddr;
     logic tlb_resp_valid;
+    logic tlb_resp_hit;
     logic [PADDR_W-1:0] tlb_resp_paddr;
     logic [511:0] l2_resp_data;
 
@@ -233,6 +236,8 @@ module mem_top #(
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
+        .l1_nack(l1_load_nack),
+        .tlb_fill(tlb_fill_valid),
         .load_complete_valid(), // TODO: should these be used? ans: i think so but am less confident, this is how we know the lq is putting out valid data from a load
                                 // right, these 3 would be used normally, but I think for this assignment only stores need to be communicated to the HPS, lmk if im misunderstanding
 
@@ -273,7 +278,7 @@ module mem_top #(
         .PADDR_W(PADDR_W),
         .ENTRIES(TLB_ENTRIES),
         .ID_W(ID_W)
-    ) shared_tlb (
+    ) tlb (
         .clk(clk),
         .rst(rst),
         .lookup_valid(tlb_lookup_valid),
@@ -282,7 +287,7 @@ module mem_top #(
         .lookup_ready(),
         .resp_valid(tlb_resp_valid),
         .resp_id(),
-        .resp_hit(),
+        .resp_hit(tlb_resp_hit),
         .resp_paddr(tlb_resp_paddr),
         .fill_valid(tlb_fill_valid),
         .trace_op(trace_op),
@@ -291,32 +296,48 @@ module mem_top #(
         .fill_ready(tlb_fill_ready)
     );
 
-    // TODO: lq-l1, sq-l1, l1-l2 communication are mismatched
-    l1cache #( 
+    // TODO: sq-l1, l1-l2 communication are mismatched
+    l1cache #(
     .VADDR_W(VADDR_W),
     .PADDR_W(PADDR_W)
     ) l1 (
         .clk(clk),
         .reset(rst),
-        .vaddr(l1_req_vaddr),
+        .load_vaddr(l1_req_vaddr),
+        .store_vaddr(commit_vaddr),
         .loadValid(l1_req_valid),
+        .load_id(l1_req_id),
         .storeValid(commit_valid),
         .store_data(),
-        .load_id(),
         .store_id(),
-        .load_id_completed(),
+        .load_id_completed(l1_resp_id),
         .store_id_completed(),
-        .l1ready(),
-        .miss_result(),
-        .data_out(),
+        .store_finished(),
+        .load_finished(l1_resp_valid),
+        .l1ready(l1_req_ready),
+        .data_out(l1_resp_data),
         .data_valid(),
-        .l2_data_in(l2_resp_data),
-        .l2_data_valid(),
-        .l2_paddr(),
+        .l2_req_valid(),
+        .l2_req_rw(),
+        .l2_req_paddr(),
+        .l2_req_data(),
+        .l2_query_id(),
+        .l2_evict_data(),
+        .l2_evict_valid(),
+        .l2_ready_for_resp(1'b0),
+        .l2_resp_valid(1'b0),
+        .l2_resp_data('0),
+        .l2_paddr('0),
+        .l2_resp_id('0),
+        // tlb
         .tlb_paddr_in(tlb_resp_paddr),
         .tlb_paddr_ready(tlb_resp_valid),
+        .tlb_paddr_hit(tlb_resp_hit),
         .tlb_vaddr_out(tlb_lookup_vaddr),
-        .tlb_vaddr_valid(tlb_lookup_valid)
+        .tlb_vaddr_valid(tlb_lookup_valid),
+        // nack on TLB miss
+        .load_nack(l1_load_nack),
+        .store_nack(l1_store_nack)
     );
 
     l2cache l2 (

@@ -50,8 +50,13 @@ module l1cache #(
   // tlb params
   input logic [PADDR_W-1:0] tlb_paddr_in,
   input logic tlb_paddr_ready,
+  input logic tlb_paddr_hit,
   output logic [VADDR_W-1:0] tlb_vaddr_out,
-  output logic tlb_vaddr_valid
+  output logic tlb_vaddr_valid,
+
+  // nack on TLB miss, lsq retries after TLB fill
+  output logic load_nack,
+  output logic store_nack
 );
 
   localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
@@ -122,6 +127,8 @@ module l1cache #(
   endtask
 
   logic stage2_blocked, stage3_blocked;
+  logic stage2_can_fire, stage2_tlb_miss;
+  logic stage1_can_accept;
 
   stage2_info stage2;
   stage3_info stage3;
@@ -146,9 +153,9 @@ module l1cache #(
   always_comb begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
-    
+
     tlb_vaddr_out = '0;
-    if(~stage3_blocked & ~stage2_blocked) begin
+    if(~stage3_blocked & stage1_can_accept) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
     end
@@ -167,7 +174,7 @@ module l1cache #(
   / Stage 2 Pipeline
   */
   always_ff @(posedge clk) begin
-    if(~stage3_blocked && ~stage2_blocked) begin
+    if(stage1_can_accept & ~stage3_blocked) begin
       stage2.data_set <= data_arr[set_index];
       stage2.tag_set <= tag_arr[set_index];
       stage2.set_index <= set_index;
@@ -181,8 +188,9 @@ module l1cache #(
       end else begin
         stage2.instr_id <= load_id;
       end
-    end else begin
-      // stage2.valid <= 1'b0;
+    end else if(stage2_tlb_miss) begin
+      // TLB miss, discard stage2, lq/sq retry after TLB fill
+      stage2.valid <= 1'b0;
     end
   end
 
@@ -197,7 +205,14 @@ module l1cache #(
   logic miss;
 
   assign paddr_tag = tlb_paddr_in[PADDR_W-1:$clog2(NUM_SETS) + $clog2(BLOCK_SIZE)];
-  assign stage2_blocked = (~tlb_paddr_ready & stage2.valid) | stage3_blocked;
+
+  assign stage2_can_fire = tlb_paddr_ready & tlb_paddr_hit & stage2.valid & ~stage3_blocked; // TLB hit
+  assign stage2_tlb_miss = tlb_paddr_ready & ~tlb_paddr_hit & stage2.valid; // TLB miss, discard
+  assign stage2_blocked  = stage2.valid & ~stage2_can_fire & ~stage2_tlb_miss; // stall stage 2
+  assign stage1_can_accept = ~stage2.valid | stage2_can_fire | stage2_tlb_miss; // stage 2 is free next cycle
+
+  assign load_nack  = stage2_tlb_miss & ~stage2.is_store;
+  assign store_nack = stage2_tlb_miss &  stage2.is_store;
 
   always_comb begin
     miss = 1'b1;
@@ -205,7 +220,7 @@ module l1cache #(
     tag_sel = 0;
     data_sel = 0;
     way_index = 0;
-    if(~stage2_blocked) begin
+    if(stage2_can_fire) begin
       for(int i = 0; i < NUM_WAYS; i++) begin
         tag_comps[i] = stage2.tag_set.data[i] == paddr_tag;
         if(tag_comps[i]) begin
@@ -223,7 +238,7 @@ module l1cache #(
   / Stage 3 Pipeline
   */
   always_ff @(posedge clk) begin
-    if(~stage2_blocked & ~stage3_blocked) begin
+    if(stage2_can_fire) begin
       stage3.data <= data_sel;
       stage3.tag <= paddr_tag;
       stage3.vaddr <= stage2.vaddr;
@@ -236,6 +251,8 @@ module l1cache #(
       stage3.set_index <= stage2.set_index;
       stage3.block_offset <= stage2.block_offset;
       stage3.instr_id <= stage2.instr_id;
+    end else if(stage2_tlb_miss) begin
+      stage3.valid <= 1'b0;
     end else begin
       // stage3.valid <= 1'b0;
     end
