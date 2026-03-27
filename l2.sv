@@ -163,7 +163,7 @@ module l2cache #(
             if(sdram_resp_valid) begin
                 mshrs[head_mshr].queue[0].data <= sdram_resp_rdata;
 
-                // don't we need the old values for these?
+                // TODO: don't we need the old values for these?
                 mshrs[head_mshr].writes[0] <= 1'b1;
                 mshrs[head_mshr].reads[0] <= 1'b0;
                 drain_mhsrs[head_mshr] <= 1'b1;
@@ -173,7 +173,7 @@ module l2cache #(
             sent_stage_5=1'b0;
             // Check MSHRs for data to write to L1
             if(|drain_mhsrs) begin
-                // TODO: go to current_drain_mshr, drain next read. If no more reads, put last store into cache
+                // go to current_drain_mshr, drain next read. If no more reads, put last store into cache
                 // Also need to update current_drain_mshr, drain_mhsrs, unavailable_mshrs if no more reads
                 logic [$clog2(NUM_MSHRS)-1:0] drain_idx;
                 logic found_drain;
