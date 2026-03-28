@@ -245,6 +245,11 @@ always_ff @(posedge clk) begin
 
     if (issue_cache) begin
         // we issued to the cache, waiting for a response
+        
+        // turn off req valid, otherwise by way of l1's structure it will continuously take the same request
+        // also, pretty sure there's a bug where if storeq is also valid at the same cycle, we get ignored
+        // but have no way of knowing we were ignore
+        l1_req_valid <= 0;
         if (l1_resp_valid) begin
             assert(queue[issue_idx].id == l1_resp_id)
 
