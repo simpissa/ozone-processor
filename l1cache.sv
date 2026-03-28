@@ -122,6 +122,7 @@ module l1cache #(
   endtask
 
   logic stage2_blocked, stage3_blocked;
+  logic stage3_l2_full_block, stage3_mshr_block;
 
   stage2_info stage2;
   stage3_info stage3;
@@ -207,7 +208,7 @@ module l1cache #(
     way_index = 0;
     if(~stage2_blocked) begin
       for(int i = 0; i < NUM_WAYS; i++) begin
-        tag_comps[i] = stage2.tag_set.data[i] == paddr_tag;
+        tag_comps[i] = stage2.tag_set.valid[i] & (stage2.tag_set.data[i] == paddr_tag);
         if(tag_comps[i]) begin
           tag_sel = stage2.tag_set.data[i];
           way_index = ($clog2(NUM_WAYS))'(i);
@@ -287,11 +288,13 @@ module l1cache #(
     store_finished = 1'b0;
     load_finished = 1'b0;
     data_out = stage3.data;
+    data_valid = 1'b0;
     l2_req_valid = 1'b0;
     load_id_completed = '0;
     store_id_completed = '0;
 
     l2_req_paddr = '0;
+    l2_req_data = '0;
     l2_query_id = '0;
 
     stage3_l2_full_block = (~l2_ready_for_resp & stage3.valid & stage3.miss);
@@ -315,10 +318,10 @@ module l1cache #(
         // Presumably only handle loads since stores are handled in ff
         load_finished = 1'b1;
         data_out = stage3.data;
-        load_id_completed = id_instr_completed;
+        load_id_completed = stage3.instr_id;
       end else begin
         store_finished = 1'b1;
-        store_id_completed = id_instr_completed;
+        store_id_completed = stage3.instr_id;
       end
     end else if(stage3.valid & l2_ready_for_resp) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
@@ -328,6 +331,8 @@ module l1cache #(
     end else begin
       // Presumably output invalid
     end
+
+    data_valid = load_finished;
   end
 
   logic[$clog2(NUM_SETS)-1:0] l2_paddr_set = l2_paddr[$clog2(NUM_SETS)-1:0];
