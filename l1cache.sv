@@ -35,7 +35,6 @@ module l1cache #(
   // relevant to both lq and sq
   output logic l1ready,
 
-  // l2 params
   // Query L2
   output logic l2_req_valid, // our request is valid
   output logic l2_req_rw, // read/write operation associated with request (not sure which is which, needs to be worked out w/ l2)
@@ -108,7 +107,7 @@ module l1cache #(
   tag_arr_set[NUM_SETS-1:0] tag_arr;
 
   task print_cache;
-    $display("<------------------------------------- CACHE STATE --------------------------------------->\n");
+    $display("<--------------------------------- INTERNAL CACHE STATE ---------------------------------->\n");
     $display("|-----------------------------------------------------------------------------------------|");
     for (int i = 0; i < NUM_WAYS; ++i) begin
       $write("| %1s | %1s | %3s | %-7s | %-18s ", "V", "D", "LRU", "Tag", "Data");
@@ -128,6 +127,13 @@ module l1cache #(
       $display("|");
     end
     $display("|-----------------------------------------------------------------------------------------|");
+
+    $display("\nStage 2 Info: valid %b store %b set %d vaddr %012x", stage2.valid, stage2.is_store, 
+                    stage2.set_index, stage2.vaddr);
+
+    $display("Stage 3 Info: valid %b store %b set idx %d way idx %d miss %b paddr %08x\n", stage3.valid,
+                    stage3.is_store, stage3.set_index, stage3.way_store_index, stage3.miss, stage3.paddr);
+        
   endtask
 
   logic stage2_blocked, stage3_blocked;
@@ -143,7 +149,20 @@ module l1cache #(
     stage2 = 0;
     stage3 = 0;
 
-    // added some lq defaults
+    if (DBG)
+        print_cache();
+  end
+
+  always @(posedge clk) begin
+    if (reset) begin
+      if (DBG)
+          $display("Resetting internal cache state...");
+      data_arr <= '0;
+      tag_arr <= '0;
+      stage2 <= '0;
+      stage3 <= '0;
+    end
+
     if (DBG)
         print_cache();
   end
@@ -158,7 +177,7 @@ module l1cache #(
     
     // TODO: changed this to always @ because it seemed it was running much more than necessary
     // will this work it does it need to go back? 
-  always @(loadValid, storeValid, stage3_blocked, stage2_blocked) begin
+  always @(stage2_blocked, stage3_blocked, loadValid, storeValid) begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
     load_received = 0;
@@ -178,6 +197,9 @@ module l1cache #(
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
     end
+
+    if (DBG)
+        $write("st2 block => %b st3 block => %b tlb_valid => %b. ", stage2_blocked, stage3_blocked, tlb_vaddr_valid);
 
     // This leads to a bug for multiple reasons
     // TODO: fix
@@ -222,7 +244,7 @@ module l1cache #(
     if(~stage3_blocked && ~stage2_blocked) begin
 
         if (DBG)
-            $display("L1 Status: Propagating request data into stage II.");
+            $display("\nL1 Status: Propagating request data into stage II.");
 
       stage2.data_set <= data_arr[set_index];
       stage2.tag_set <= tag_arr[set_index];
@@ -291,8 +313,24 @@ module l1cache #(
   */
   always_ff @(posedge clk) begin
     if(~stage2_blocked & ~stage3_blocked) begin
-        if (DBG)
-            $display("L1 Status: Propagating stage II values & data/tag values into stage III.");
+        if (DBG) begin
+            $display("\nL1 Status: Propagating stage II values & data/tag values into stage III.");
+            $display("valid %b data %016x tag %05x vaddr %012x str data %016x miss %b paddr %08x",
+                    stage2.valid,
+                    data_sel,
+                    paddr_tag,
+                    stage2.vaddr,
+                    stage2.store_data,
+                    miss,
+                    tlb_paddr_in);
+            $display("is_store %b way idx %b set idx %d offs %d id %d",
+                    stage2.is_store,
+                    way_index,
+                    stage2.set_index,
+                    stage2.block_offset,
+                    stage2.instr_id);
+        end
+            
       stage3.data <= data_sel;
       stage3.tag <= paddr_tag;
       stage3.vaddr <= stage2.vaddr;
