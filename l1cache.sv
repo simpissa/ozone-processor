@@ -154,6 +154,18 @@ module l1cache #(
       tlb_vaddr_valid = is_valid;
     end
 
+    // This leads to a bug for multiple reasons
+    // TODO: fix
+
+    // 1) if either storeValid or loadValid is held high for the entirety of the request
+    // the l1 will get populated with the same request multiple times
+    // 2) if both storeValid and loadValid are high at the same time, there is no way to tell
+    // the load queue that it's request was not accepted.
+
+    // It's easy for me to fix both of these for the load queue (#1 should already be fixed), but
+    // I'm less familiar with how the store queue works and don't want to break anything in my attempt
+    // to make a solution
+
     if(storeValid) begin
       tlb_vaddr_out = store_vaddr;
     end else if(loadValid) begin
