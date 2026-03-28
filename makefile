@@ -10,6 +10,9 @@ loadq: loadq.sv tests/loadq_tb.sv
 l1cache: l1cache.sv tests/l1cache_tb.sv
 	verilator --assert --binary l1cache.sv tests/l1cache_tb.sv
 
+l2: l2.sv tests/l2_tb.sv
+	verilator --assert --binary --timing --top-module l2_tb l2.sv tests/l2_tb.sv
+
 test-load: loadq
 	obj_dir/Vloadq
 
@@ -18,6 +21,9 @@ test-tlb: tlb
 
 test-l1: l1cache
 	obj_dir/Vl1cache
+
+test-l2: l2
+	obj_dir/Vl2_tb
 
 top: tlb.sv l1cache.sv l2.sv storeq.sv loadq.sv mem_top.sv
 	verilator --assert --binary --top-module mem_top \
