@@ -26,6 +26,7 @@ logic l1_req_valid;
 logic [47:0] l1_req_vaddr;
 logic [3:0] l1_req_id;
 logic l1_req_ready;
+logic l1_req_received;
 
 logic l1_resp_valid;
 logic [3:0] l1_resp_id;
@@ -57,6 +58,7 @@ load_queue #(.LQ_SIZE(8), .ID_W(4)) lq (
     .l1_req_vaddr(l1_req_vaddr),
     .l1_req_id(l1_req_id),
     .l1_req_ready(l1_req_ready),
+    .l1_req_received(l1_req_received),
     .l1_resp_valid(l1_resp_valid),
     .l1_resp_id(l1_resp_id),
     .l1_resp_data(l1_resp_data),
@@ -393,6 +395,12 @@ initial begin
     @(negedge clk_in);
 
     assert(l1_req_valid);
+
+    l1_req_received = 1;
+    
+    @(negedge clk_in);
+
+    assert(!l1_req_valid);
 
     l1_resp_data = 10;
     l1_resp_id = 1;

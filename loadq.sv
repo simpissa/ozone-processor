@@ -31,6 +31,7 @@ module load_queue #(
     output logic [47:0]  l1_req_vaddr,
     output logic [3:0]   l1_req_id,
     input  logic         l1_req_ready,
+    input  logic         l1_req_received,
 
     // Response from cache hierarchy
     input  logic         l1_resp_valid,
@@ -249,7 +250,11 @@ always_ff @(posedge clk) begin
         // turn off req valid, otherwise by way of l1's structure it will continuously take the same request
         // also, pretty sure there's a bug where if storeq is also valid at the same cycle, we get ignored
         // but have no way of knowing we were ignore
-        l1_req_valid <= 0;
+
+        if (l1_req_received) begin
+            l1_req_valid <= 0;
+        end
+
         if (l1_resp_valid) begin
             assert(queue[issue_idx].id == l1_resp_id)
 

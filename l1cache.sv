@@ -12,22 +12,28 @@ module l1cache #(
 )(
 	input  logic         clk,
 	input  logic         reset,
-  // lsq params
-  input logic [VADDR_W-1:0] load_vaddr,
+  // sq params
   input logic [VADDR_W-1:0] store_vaddr,
-  input logic loadValid,
-  input logic [ID_LENGTH-1:0] load_id,
   input logic [ID_LENGTH-1:0] store_id,
   input logic storeValid,
   input logic [63:0] store_data,
-  output logic [ID_LENGTH-1:0] load_id_completed,
+  output logic store_received,
   output logic [ID_LENGTH-1:0] store_id_completed,
   output logic store_finished,
-  output logic load_finished,
 
-  output logic l1ready,
+  // lq params
+  input logic loadValid,
+  input logic [VADDR_W-1:0] load_vaddr,
+  input logic [ID_LENGTH-1:0] load_id,
+  output logic load_received,
+  // TODO: is load_finished the same as data_valid? if so, remove one 
+  output logic load_finished,
+  output logic [ID_LENGTH-1:0] load_id_completed,
   output logic [63:0] data_out,
   output logic data_valid,
+  
+  // relevant to both lq and sq
+  output logic l1ready,
 
   // l2 params
   // Query L2
@@ -133,6 +139,12 @@ module l1cache #(
     tag_arr = 0;
     stage2 = 0;
     stage3 = 0;
+
+    // added some lq defaults
+    load_received = 0;
+    load_finished = 0;
+    data_out = '0;
+    data_valid = 0;
     print_cache();
   end
 
@@ -147,6 +159,8 @@ module l1cache #(
   always_comb begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
+    load_received = 0;
+    store_received = 0;
     
     tlb_vaddr_out = '0;
     if(~stage3_blocked & ~stage2_blocked) begin
@@ -166,10 +180,16 @@ module l1cache #(
     // I'm less familiar with how the store queue works and don't want to break anything in my attempt
     // to make a solution
 
+    // I added the load_received and store_received outputs to help the queues determine when their 
+    // request has been taken in. To whoever fixes sq, do with that as you will, and delete it if you
+    // find a way to fix without using it. 
+
     if(storeValid) begin
       tlb_vaddr_out = store_vaddr;
+      store_received = 1;
     end else if(loadValid) begin
       tlb_vaddr_out = load_vaddr;
+      load_received = 1;
     end
   end
 
