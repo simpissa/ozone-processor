@@ -63,6 +63,9 @@ module l1cache #(
   localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
   localparam int TAG_SIZE = PADDR_W-($clog2(NUM_SETS) + $clog2(BLOCK_SIZE));
 
+  //  verbose debug mode
+  logic DBG = 1'b1;
+
   typedef struct packed {
     logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
   } data_arr_set;
@@ -141,11 +144,8 @@ module l1cache #(
     stage3 = 0;
 
     // added some lq defaults
-    load_received = 0;
-    load_finished = 0;
-    data_out = '0;
-    data_valid = 0;
-    print_cache();
+    if (DBG)
+        print_cache();
   end
 
   /**
@@ -155,14 +155,25 @@ module l1cache #(
   assign is_valid = storeValid | loadValid;
   logic[$clog2(BLOCK_SIZE)-1:0] block_offset;
   logic[$clog2(NUM_SETS)-1:0] set_index;
-
-  always_comb begin
+    
+    // TODO: changed this to always @ because it seemed it was running much more than necessary
+    // will this work it does it need to go back? 
+  always @(loadValid, storeValid, stage3_blocked, stage2_blocked) begin
     l1ready = 1'b0;
     tlb_vaddr_valid = 1'b0;
     load_received = 0;
     store_received = 0;
+
+    if (DBG)
+        $write("L1 Status: Checking load/store req valid. ");
     
     tlb_vaddr_out = '0;
+    
+    // TODO: is there a bug where all stages are blocked but we still receive load/store requests?
+    // It's not like this bit can exit...
+    // It could be that this relies on the lq/sq having loadValid/storeValid low if l1ready isn't high,
+    // but can't hurt to look into it more
+
     if(~stage3_blocked & ~stage2_blocked) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
@@ -187,10 +198,18 @@ module l1cache #(
     if(storeValid) begin
       tlb_vaddr_out = store_vaddr;
       store_received = 1;
+      if (DBG)
+          $write("Received store request");
+
     end else if(loadValid) begin
       tlb_vaddr_out = load_vaddr;
       load_received = 1;
+      if (DBG)
+          $write("Received load request");
+
     end
+    if (DBG)
+        $display();
   end
 
   assign block_offset = tlb_vaddr_out[$clog2(BLOCK_SIZE)-1:0];
@@ -201,6 +220,10 @@ module l1cache #(
   */
   always_ff @(posedge clk) begin
     if(~stage3_blocked && ~stage2_blocked) begin
+
+        if (DBG)
+            $display("L1 Status: Propagating request data into stage II.");
+
       stage2.data_set <= data_arr[set_index];
       stage2.tag_set <= tag_arr[set_index];
       stage2.set_index <= set_index;
@@ -214,6 +237,17 @@ module l1cache #(
       end else begin
         stage2.instr_id <= load_id;
       end
+
+      if (DBG)
+        $display("valid: %b set: %d offset: %d vaddr: %012h str data: %016x is_store: %b id: %d",
+                is_valid,
+                set_index,
+                block_offset,
+                tlb_vaddr_out,
+                store_data,
+                storeValid,
+                storeValid ? store_id : load_id); 
+
     end else begin
       // stage2.valid <= 1'b0;
     end
@@ -257,6 +291,8 @@ module l1cache #(
   */
   always_ff @(posedge clk) begin
     if(~stage2_blocked & ~stage3_blocked) begin
+        if (DBG)
+            $display("L1 Status: Propagating stage II values & data/tag values into stage III.");
       stage3.data <= data_sel;
       stage3.tag <= paddr_tag;
       stage3.vaddr <= stage2.vaddr;
