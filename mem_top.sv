@@ -358,6 +358,7 @@ module mem_top #(
         .l1_resp_valid(l2_resp_valid),
         .l1_resp_data(l2_resp_data),
         .l1_output_id(l2_resp_id),
+        .l1_output_paddr(l2_paddr),
         .sdram_req_valid(sdram_req_valid),
         .sdram_req_ready(sdram_req_ready),
         .sdram_req_rw(sdram_req_rw),
