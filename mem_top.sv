@@ -32,18 +32,8 @@ module mem_top #(
     // TODO: It's just my interpretation, but I think these need to be internal
     // and the avm_m0 inputs are what need to be here
     // so I'll do that
-    
-    output logic avm_m0_read,
-    output logic avm_m0_write,
-    output logic [255:0] avm_m0_writedata,
-    output logic [31:0] avm_m0_address,
-    input logic [255:0] avm_m0_readdata,
-    input logic avm_m0_readdatavalid,
-    output logic [31:0] avm_m0_byteenable,
-    input logic avm_m0_waitrequest,
-    output logic [10:0] avm_m0_burstcount
+    // the sdram is already instantiated in platform designer, soc_system/synthesis/soc_system.v exposes its wires
 
-    /*
     // sdram interface with l2
     output logic         sdram_req_valid,
     input  logic         sdram_req_ready,
@@ -52,7 +42,6 @@ module mem_top #(
     output logic [511:0] sdram_req_wdata,
     input  logic         sdram_resp_valid,
     input  logic [511:0] sdram_resp_rdata
-    */
 
 );
 
@@ -368,15 +357,6 @@ module mem_top #(
         .tlb_vaddr_valid(tlb_lookup_valid)
     );
 
-    // sdram interface with l2
-    logic         sdram_req_valid;
-    logic         sdram_req_ready;
-    logic         sdram_req_rw;
-    logic [31:0]  sdram_req_addr;
-    logic [511:0] sdram_req_wdata;
-    logic         sdram_resp_valid;
-    logic [511:0] sdram_resp_rdata;
-
     l2cache l2 (
         .clk(clk),
         .rst(rst),
@@ -398,27 +378,5 @@ module mem_top #(
         .sdram_resp_rdata(sdram_resp_rdata)
     );
 
-    sdram ram (
-       .clk(clk),
-       .reset(rst),
-       .req_valid(sdram_req_valid),
-       .req_ready(sdram_req_ready),
-       .req_rw(sdram_req_rw),
-       .req_addr(sdram_req_addr),
-       .req_wdata(sdram_req_wdata),
-       .resp_valid(sdram_resp_valid),
-       .resp_rdata(sdram_resp_rdata),
-
-        // TODO: is this done correctly?
-       .avm_m0_read(avm_m0_read),
-       .avm_m0_write(avm_m0_write),
-       .avm_m0_writedata(avm_m0_writedata),
-       .avm_m0_address(avm_m0_address),
-       .avm_m0_readdata(avm_m0_readdata),
-       .avm_m0_readdatavalid(avm_m0_readdatavalid),
-       .avm_m0_byteenable(avm_m0_byteenable),
-       .avm_m0_waitrequest(avm_m0_waitrequest),
-       .avm_m0_burstcount(avm_m0_burstcount)
-   );
 
 endmodule

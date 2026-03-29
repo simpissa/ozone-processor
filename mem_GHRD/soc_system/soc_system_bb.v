@@ -1,9 +1,9 @@
 
 module soc_system (
 	clk_clk,
-	commit_data_export,
-	hps_to_fpga_handshake_readdata,
+	fpga_to_hps_handshake_export,
 	hps_0_h2f_reset_reset_n,
+	hps_to_fpga_handshake_readdata,
 	memory_mem_a,
 	memory_mem_ba,
 	memory_mem_ck,
@@ -20,21 +20,20 @@ module soc_system (
 	memory_mem_odt,
 	memory_mem_dm,
 	memory_oct_rzqin,
-	req_addr_export,
-	req_ready_export,
-	req_rw_export,
-	req_valid_export,
-	req_wdata_export,
+	sdram_req_addr_export,
+	sdram_req_ready_export,
+	sdram_req_rw_export,
+	sdram_req_valid_export,
+	sdram_req_wdata_export,
 	reset_reset_n,
-	resp_rdata_export,
-	resp_valid_export,
-	trace_data_readdata,
-	fpga_to_hps_handshake_export);	
+	sdram_resp_rdata_export,
+	sdram_resp_valid_export,
+	trace_data_readdata);	
 
 	input		clk_clk;
-	input	[127:0]	commit_data_export;
-	output	[127:0]	hps_to_fpga_handshake_readdata;
+	input	[127:0]	fpga_to_hps_handshake_export;
 	output		hps_0_h2f_reset_reset_n;
+	output	[127:0]	hps_to_fpga_handshake_readdata;
 	output	[14:0]	memory_mem_a;
 	output	[2:0]	memory_mem_ba;
 	output		memory_mem_ck;
@@ -51,14 +50,13 @@ module soc_system (
 	output		memory_mem_odt;
 	output	[3:0]	memory_mem_dm;
 	input		memory_oct_rzqin;
-	input	[31:0]	req_addr_export;
-	output		req_ready_export;
-	input		req_rw_export;
-	inout		req_valid_export;
-	input	[511:0]	req_wdata_export;
+	input	[31:0]	sdram_req_addr_export;
+	output		sdram_req_ready_export;
+	input		sdram_req_rw_export;
+	inout		sdram_req_valid_export;
+	input	[511:0]	sdram_req_wdata_export;
 	input		reset_reset_n;
-	output	[511:0]	resp_rdata_export;
-	output		resp_valid_export;
+	output	[511:0]	sdram_resp_rdata_export;
+	output		sdram_resp_valid_export;
 	output	[127:0]	trace_data_readdata;
-	input	[127:0]	fpga_to_hps_handshake_export;
 endmodule

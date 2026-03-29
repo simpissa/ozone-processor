@@ -13,7 +13,7 @@
    {
       datum _sortIndex
       {
-         value = "6";
+         value = "5";
          type = "int";
       }
    }
@@ -55,7 +55,7 @@
    {
       datum _sortIndex
       {
-         value = "5";
+         value = "6";
          type = "int";
       }
    }
@@ -64,22 +64,6 @@
       datum baseAddress
       {
          value = "32";
-         type = "String";
-      }
-   }
-   element pio128_in_1
-   {
-      datum _sortIndex
-      {
-         value = "7";
-         type = "int";
-      }
-   }
-   element pio128_in_1.s0
-   {
-      datum baseAddress
-      {
-         value = "48";
          type = "String";
       }
    }
@@ -130,13 +114,8 @@
  <instanceScript></instanceScript>
  <interface name="clk" internal="clk_0.clk_in" type="clock" dir="end" />
  <interface
-   name="commit_data"
-   internal="pio128_in_0.pio128_in"
-   type="conduit"
-   dir="end" />
- <interface
    name="fpga_to_hps_handshake"
-   internal="pio128_in_1.pio128_in"
+   internal="pio128_in_0.pio128_in"
    type="conduit"
    dir="end" />
  <interface name="hps_0_f2h_cold_reset_req" internal="hps_0.f2h_cold_reset_req" />
@@ -156,35 +135,39 @@
    type="conduit"
    dir="end" />
  <interface name="memory" internal="hps_0.memory" type="conduit" dir="end" />
+ <interface name="reset" internal="clk_0.clk_in_reset" type="reset" dir="end" />
  <interface
-   name="req_addr"
+   name="sdram_req_addr"
    internal="avalon_sdr_0.req_addr"
    type="conduit"
    dir="end" />
  <interface
-   name="req_ready"
+   name="sdram_req_ready"
    internal="avalon_sdr_0.req_ready"
    type="conduit"
    dir="end" />
- <interface name="req_rw" internal="avalon_sdr_0.req_rw" type="conduit" dir="end" />
  <interface
-   name="req_valid"
+   name="sdram_req_rw"
+   internal="avalon_sdr_0.req_rw"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="sdram_req_valid"
    internal="avalon_sdr_0.req_valid"
    type="conduit"
    dir="end" />
  <interface
-   name="req_wdata"
+   name="sdram_req_wdata"
    internal="avalon_sdr_0.req_wdata"
    type="conduit"
    dir="end" />
- <interface name="reset" internal="clk_0.clk_in_reset" type="reset" dir="end" />
  <interface
-   name="resp_rdata"
+   name="sdram_resp_rdata"
    internal="avalon_sdr_0.resp_rdata"
    type="conduit"
    dir="end" />
  <interface
-   name="resp_valid"
+   name="sdram_resp_valid"
    internal="avalon_sdr_0.resp_valid"
    type="conduit"
    dir="end" />
@@ -749,7 +732,6 @@
   <parameter name="USE_RESPONSE" value="0" />
  </module>
  <module name="pio128_in_0" kind="pio128_in" version="1.0" enabled="1" />
- <module name="pio128_in_1" kind="pio128_in" version="1.0" enabled="1" />
  <module name="pio128_out_0" kind="pio128_out" version="1.0" enabled="1" />
  <module name="pio128_out_1" kind="pio128_out" version="1.0" enabled="1" />
  <connection
@@ -797,15 +779,6 @@
   <parameter name="baseAddress" value="0x0020" />
   <parameter name="defaultConnection" value="false" />
  </connection>
- <connection
-   kind="avalon"
-   version="25.1"
-   start="mm_bridge_0.m0"
-   end="pio128_in_1.s0">
-  <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0030" />
-  <parameter name="defaultConnection" value="false" />
- </connection>
  <connection kind="clock" version="25.1" start="clk_0.clk" end="mm_bridge_0.clk" />
  <connection
    kind="clock"
@@ -817,13 +790,12 @@
    version="25.1"
    start="clk_0.clk"
    end="pio128_out_0.clock" />
- <connection kind="clock" version="25.1" start="clk_0.clk" end="pio128_in_0.clock" />
  <connection
    kind="clock"
    version="25.1"
    start="clk_0.clk"
    end="avalon_sdr_0.clock" />
- <connection kind="clock" version="25.1" start="clk_0.clk" end="pio128_in_1.clock" />
+ <connection kind="clock" version="25.1" start="clk_0.clk" end="pio128_in_0.clock" />
  <connection
    kind="clock"
    version="25.1"
@@ -853,17 +825,12 @@
    kind="reset"
    version="25.1"
    start="clk_0.clk_reset"
-   end="pio128_in_0.reset" />
- <connection
-   kind="reset"
-   version="25.1"
-   start="clk_0.clk_reset"
    end="avalon_sdr_0.reset" />
  <connection
    kind="reset"
    version="25.1"
    start="clk_0.clk_reset"
-   end="pio128_in_1.reset" />
+   end="pio128_in_0.reset" />
  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="HANDSHAKE" />
  <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="1" />
 </system>

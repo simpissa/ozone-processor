@@ -42,24 +42,19 @@ wire hps_fpga_reset_n;
 wire fpga_clk_50;
 
 wire [127:0] trace_data;
-wire [127:0] commit_data;
 wire [127:0] hps_to_fpga_handshake;
 wire [127:0] fpga_to_hps_handshake;
 
 wire trace_valid;
 wire trace_ready;
-wire commit_ready;
-wire commit_valid;
-wire [47:0] commit_vaddr;
-wire [63:0] commit_value;
 
-wire sdram_req_valid;
+wire [31:0] sdram_req_addr;
 wire sdram_req_ready;
 wire sdram_req_rw;
-wire [31:0] sdram_req_addr;
+wire sdram_req_valid;
 wire [511:0] sdram_req_wdata;
-wire sdram_resp_valid;
 wire [511:0] sdram_resp_rdata;
+wire sdram_resp_valid;
 
 reg [1:0] hps_to_fpga_handshake_prev;
 
@@ -68,11 +63,9 @@ reg [2:0] led_index;
 assign LED = 8'b0000_0001 << led_index; // leds!
 
 assign fpga_clk_50 = FPGA_CLK1_50;
-assign fpga_to_hps_handshake = {126'd0, commit_valid, trace_ready};
-// convert to one-cycle pulse to make sure trace is only consumed once 
-assign trace_valid = hps_to_fpga_handshake[0] & ~hps_to_fpga_handshake_prev[0];
-assign commit_ready = hps_to_fpga_handshake[1] & ~hps_to_fpga_handshake_prev[1];
-assign commit_data = {16'd0, commit_value, commit_vaddr};
+// HPS writes bit 1 to submit a new trace, and FPGA returns trace_ready on bit 0.
+assign trace_valid = hps_to_fpga_handshake[1] & ~hps_to_fpga_handshake_prev[1];
+assign fpga_to_hps_handshake = {127'd0, trace_ready};
 
 
 //=======================================================
@@ -81,8 +74,7 @@ assign commit_data = {16'd0, commit_value, commit_vaddr};
 soc_system u0(
                //Clock&Reset
                .clk_clk(FPGA_CLK1_50),                                      //                                  clk.clk
-               .commit_data_export(commit_data),                       //                          commit_data.export
-               .fpga_to_hps_handshake_export(fpga_to_hps_handshake),   //                fpga_to_hps_handshake.export
+               .fpga_to_hps_handshake_export(fpga_to_hps_handshake),        //                fpga_to_hps_handshake.export
                .hps_to_fpga_handshake_readdata(hps_to_fpga_handshake), //                hps_to_fpga_handshake.readdata
                .reset_reset_n(hps_fpga_reset_n),                            //                                reset.reset_n
                //HPS ddr3
@@ -103,14 +95,14 @@ soc_system u0(
                .memory_mem_dm(HPS_DDR3_DM),                                 //                                     .mem_dm
                .memory_oct_rzqin(HPS_DDR3_RZQ),                             //                                     .oct_rzqin
 
-               .req_addr_export(sdram_req_addr),                            //                             req_addr.export
-               .req_ready_export(sdram_req_ready),                          //                            req_ready.export
-               .req_rw_export(sdram_req_rw),                                //                               req_rw.export
-               .req_valid_export(sdram_req_valid),                          //                            req_valid.export
-               .req_wdata_export(sdram_req_wdata),                          //                            req_wdata.export
-               .resp_rdata_export(sdram_resp_rdata),                        //                           resp_rdata.export
-               .resp_valid_export(sdram_resp_valid),                        //                           resp_valid.export
-               .trace_data_readdata(trace_data),                       //                           trace_data.readdata
+               .sdram_req_addr_export(sdram_req_addr),                       //                       sdram_req_addr.export
+               .sdram_req_ready_export(sdram_req_ready),                     //                      sdram_req_ready.export
+               .sdram_req_rw_export(sdram_req_rw),                           //                         sdram_req_rw.export
+               .sdram_req_valid_export(sdram_req_valid),                     //                      sdram_req_valid.export
+               .sdram_req_wdata_export(sdram_req_wdata),                     //                      sdram_req_wdata.export
+               .sdram_resp_rdata_export(sdram_resp_rdata),                   //                     sdram_resp_rdata.export
+               .sdram_resp_valid_export(sdram_resp_valid),                   //                     sdram_resp_valid.export
+               .trace_data_readdata(trace_data),                            //                           trace_data.readdata
                .hps_0_h2f_reset_reset_n(hps_fpga_reset_n)                   //                      hps_0_h2f_reset.reset_n
 
             );
@@ -121,10 +113,6 @@ mem_top mem_top (
     .trace_valid(trace_valid),
     .trace_ready(trace_ready),
     .trace_data(trace_data),
-    .commit_ready(commit_ready),
-    .commit_valid(commit_valid),
-    .commit_vaddr(commit_vaddr),
-    .commit_value(commit_value),
     .sdram_req_valid(sdram_req_valid),
     .sdram_req_ready(sdram_req_ready),
     .sdram_req_rw(sdram_req_rw),
