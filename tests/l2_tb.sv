@@ -36,6 +36,8 @@ module l2_tb;
     logic [LINE_W-1:0] sdram_resp_rdata;
 
     logic pending_sdram_resp;
+    int pending_sdram_delay;
+    int sdram_delay;
     logic [31:0] pending_sdram_addr;
     logic [LINE_W-1:0] pending_sdram_data;
 
@@ -94,12 +96,42 @@ module l2_tb;
             sdram_resp_valid = 1'b0;
             sdram_resp_rdata = '0;
             pending_sdram_resp = 1'b0;
+            pending_sdram_delay = 0;
+            sdram_delay = 0;
             pending_sdram_addr = '0;
             pending_sdram_data = '0;
             sdram_read_count = 0;
             sdram_write_count = 0;
             repeat (3) @(posedge clk);
             rst = 1'b0;
+        end
+    endtask
+
+    // wait until the miss has reserved a cache way and is tracked in an MSHR
+    task automatic wait_for_line_in_mshr(
+        input logic [$clog2(CAPACITY / BLOCK_SIZE / NUM_WAYS)-1:0] set_idx,
+        input logic [WORD_ADDR_SIZE-$clog2(CAPACITY / BLOCK_SIZE / NUM_WAYS)-1:0] tag
+    );
+        int cycles;
+        bit found;
+        begin
+            cycles = 0;
+            found = 0;
+            while (!found) begin
+                found = 0;
+                for (int way = 0; way < NUM_WAYS; way++) begin
+                    if (dut.cache[set_idx].set[way].in_mshr && dut.cache[set_idx].set[way].tag == tag) begin
+                        found = 1;
+                    end
+                end
+                if (!found) begin
+                    @(posedge clk);
+                    cycles++;
+                    if (cycles > 100) begin
+                        $fatal(1, "line never entered MSHR");
+                    end
+                end
+            end
         end
     endtask
 
@@ -225,15 +257,20 @@ module l2_tb;
             end else begin
                 sdram_read_count <= sdram_read_count + 1;
                 pending_sdram_resp <= 1'b1;
+                pending_sdram_delay <= sdram_delay;
                 pending_sdram_addr <= sdram_req_addr;
                 pending_sdram_data <= line_pattern(sdram_req_addr);
             end
         end
 
         if (pending_sdram_resp) begin
-            sdram_resp_valid <= 1'b1;
-            sdram_resp_rdata <= pending_sdram_data;
-            pending_sdram_resp <= 1'b0;
+            if (pending_sdram_delay == 0) begin
+                sdram_resp_valid <= 1'b1;
+                sdram_resp_rdata <= pending_sdram_data;
+                pending_sdram_resp <= 1'b0;
+            end else begin
+                pending_sdram_delay <= pending_sdram_delay - 1;
+            end
         end
     end
 
@@ -243,18 +280,22 @@ module l2_tb;
         logic [WORD_ADDR_SIZE-1:0] set_addr_2;
         logic [WORD_ADDR_SIZE-1:0] set_addr_3;
         logic [WORD_ADDR_SIZE-1:0] set_addr_4;
+        logic [WORD_ADDR_SIZE-1:0] fwd_addr;
         logic [31:0] expected_sdram_addr;
         logic [31:0] evict_addr;
         logic [31:0] fill_addr_1;
         logic [31:0] fill_addr_2;
         logic [31:0] fill_addr_3;
         logic [31:0] fill_addr_4;
+        logic [31:0] fwd_sdram_addr;
         logic [LINE_W-1:0] expected_line;
         logic [LINE_W-1:0] fill_line_1;
         logic [LINE_W-1:0] fill_line_2;
         logic [LINE_W-1:0] fill_line_3;
         logic [LINE_W-1:0] fill_line_4;
         logic [LINE_W-1:0] write_line;
+        logic [LINE_W-1:0] fwd_base_line;
+        logic [LINE_W-1:0] fwd_write_line;
         int old_read_count;
         int old_write_count;
 
@@ -327,6 +368,34 @@ module l2_tb;
         expect_l1_response(4'h8, fill_line_4);
         assert(sdram_write_count==old_write_count+1);
         assert(sdram_read_count==old_read_count + 1);
+
+        // test forwarding
+        reset();
+        sdram_delay = 8;
+        fwd_addr = 24'h00a234;
+        fwd_sdram_addr = {2'b00, fwd_addr, {OFFSET_SIZE{1'b0}}};
+        fwd_base_line = line_pattern(fwd_sdram_addr);
+        fwd_write_line = {8{64'hface_cafe_dead_0002}};
+
+        drive_request(1'b0, fwd_addr, '0, 4'h9);
+        expect_sdram_read(fwd_sdram_addr);
+        wait_for_line_in_mshr(fwd_addr[$clog2(CAPACITY / BLOCK_SIZE / NUM_WAYS)-1:0], fwd_addr[WORD_ADDR_SIZE-1:$clog2(CAPACITY / BLOCK_SIZE / NUM_WAYS)]);
+
+        drive_request(1'b1, fwd_addr, fwd_write_line, 4'ha);
+        drive_request(1'b0, fwd_addr, '0, 4'hb);
+
+        old_read_count = sdram_read_count;
+        // the younger read should be forwarded from the queued write before the
+        // original miss response drains back from SDRAM
+        expect_l1_response(4'hb, fwd_write_line);
+        expect_l1_response(4'h9, fwd_base_line);
+        expect_no_new_sdram_reads(old_read_count, 10);
+
+        sdram_delay= 0;
+        old_read_count = sdram_read_count;
+        drive_request(1'b0, fwd_addr, '0, 4'hc);
+        expect_l1_response(4'hc, fwd_write_line);
+        expect_no_new_sdram_reads(old_read_count, 5);
 
         $display("PASS L2 TESTS");
         $finish;
