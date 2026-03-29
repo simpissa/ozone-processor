@@ -27,6 +27,11 @@ module store_queue #(
     output logic [63:0] search_value,
 
 
+    // Get age of oldest instruction in LQ
+    input logic [AGE_W-1:0] lq_head_age,
+    input logic lq_head_valid,
+
+
     // Note sure when can commit stores, should be given by ROB
     // Interacting with L1 cache
     output logic [47:0] write_vaddr,
@@ -55,7 +60,7 @@ module store_queue #(
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
-    assign valid_out = (curr_entries=={SQ_SIZE{1'b1}}|curr_entries!={SQ_SIZE{1'b0}}&age-SQ[sq_head].age>=16)&!curr_unresolved[sq_head];
+    assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&!curr_unresolved[sq_head];
     assign write_new_data = valid_out & ready_in;
     assign write_vaddr = SQ[sq_head].trace_vaddr;
     assign write_value = SQ[sq_head].trace_value;
