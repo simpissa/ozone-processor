@@ -2,7 +2,8 @@
 
 module load_queue #(
     parameter LQ_SIZE = 8,
-    parameter ID_W = 4
+    parameter ID_W = 4,
+    parameter AGE_W = 15
 )(
     input  logic         clk,
     input  logic         reset,
@@ -20,11 +21,15 @@ module load_queue #(
     output logic         sq_query_valid,
     output logic [47:0]  sq_query_addr,
     output logic [3:0]   sq_query_id,
-    output logic [ID_W:0] sq_query_age,
+    output logic [AGE_W-1:0] sq_query_age,
     input  logic         sq_forward_valid, 
     input  logic [63:0]  sq_forward_data,
     input  logic         sq_conflict,
     input  logic         sq_miss,
+
+    // information for store queue, but we don't really care
+    output logic [AGE_W-1:0] lq_head_age,
+    output logic             lq_head_valid,
 
     // Request to L1 data cache
     output logic         l1_req_valid,
@@ -75,6 +80,9 @@ logic [LQ_SIZE-1:0] ready;
 // id map needs to have 
 logic [IDX_W:0] id_map [0:N_TRACES-1];
 lq_entry queue [0:LQ_SIZE-1];
+
+assign lq_head_valid = queue[head].valid;
+assign lq_head_age   = queue[head].age;
 
 // misc logic
 logic sq_had_miss;
