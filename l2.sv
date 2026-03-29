@@ -101,9 +101,9 @@ module l2cache #(
     logic [NUM_MSHRS-1:0] available_mshrs;
     logic [NUM_MSHRS-1:0] unavailable_mshrs;
     logic [NUM_MSHRS-1:0] drain_mhsrs;
-    logic [NUM_MSHRS-1:0] inflight_mshrs;
     logic [$clog2(NUM_MSHRS)-1:0] head_mshr;    // MSHR entry currently being queried
     logic [$clog2(NUM_MSHRS)-1:0] tail_mshr;
+    logic [$clog2(NUM_MSHRS)-1:0] sent_mshr;    // MSHR entry which is currently being sent to SDRAM
     logic [$clog2(NUM_MSHRS)-1:0] current_drain_mshr;   // MSHR to drain
     assign available_mshrs = ~unavailable_mshrs;
 
@@ -150,7 +150,7 @@ module l2cache #(
             mshrs <= '0;
             unavailable_mshrs <= '0;
             drain_mhsrs <= '0;
-            inflight_mshrs <= '0;
+            sent_mshr <= '0;
             stage1 <= '0;
             stage2 <= '0;
             stage3 <= '0;
@@ -177,14 +177,13 @@ module l2cache #(
 
             // Update MSHR after receiving info from sdram
             if(sdram_resp_valid) begin
-                mshrs[head_mshr].queue[0].data <= sdram_resp_rdata;
-                if (!mshrs[head_mshr].valid_value) begin
-                    mshrs[head_mshr].valid_value <= 1'b1;
-                    mshrs[head_mshr].latest_value <= sdram_resp_rdata;
+                mshrs[sent_mshr].queue[0].data <= sdram_resp_rdata;
+                if (!mshrs[sent_mshr].valid_value) begin
+                    mshrs[sent_mshr].valid_value <= 1'b1;
+                    mshrs[sent_mshr].latest_value <= sdram_resp_rdata;
                 end
-                drain_mhsrs[head_mshr] <= 1'b1;
-                inflight_mshrs[head_mshr] <= 1'b0;
-                head_mshr <= head_mshr + 1;
+                drain_mhsrs[sent_mshr] <= 1'b1;
+                sent_mshr <= sent_mshr + 1;
             end
 
             sent_stage_5=1'b0;
@@ -227,7 +226,7 @@ module l2cache #(
                 if(pending_evict) begin
                     next_pending_evict = 1'b0;  // SDRAM processing writing eviction
                 end else begin
-                    inflight_mshrs[head_mshr] <= 1'b1; // SDRAM processing read miss
+                    head_mshr <= head_mshr + 1;
                 end
             end
             
@@ -366,7 +365,7 @@ module l2cache #(
                 stage1.valid <= 1'b0;
             end
 
-            if (unavailable_mshrs[head_mshr] && !drain_mhsrs[head_mshr] && !inflight_mshrs[head_mshr] && can_query && !(sdram_req_valid && sdram_req_ready)) begin
+            if ((unavailable_mshrs^drain_mhsrs) != '0 && can_query) begin
                 // Query read from a MSHR to SDRAM (make query using head_mshr info)
                 sdram_req_rw <= 1'b0;
                 sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[head_mshr].tag,mshrs[head_mshr].set_index, {OFFSET_SIZE{1'b0}}};
