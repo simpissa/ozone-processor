@@ -20,6 +20,7 @@ module mem_top #(
     
     // TODO: i think this is unnecessary, since l2 is what stores writes
     // these inputs need to instead be used to interact with l1
+    // yea i originally thought this was needed for grading but nate prob has his own way of looking at architectural state
     /*
     // store commits, send to HPS
     input logic commit_ready,
