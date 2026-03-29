@@ -6,29 +6,44 @@ module mem_top #(
     parameter int PADDR_W = 30,
     parameter int TLB_ENTRIES = 16,
     parameter int ID_W = 4,
+    parameter int AGE_W = 15,
     parameter int LQ_SIZE = 8,
     parameter int SQ_SIZE = 8
 ) (
     input logic clk,
     input logic rst,
 
-    // I think the best way to do dram is to take as an input to mem_top?
-    // That way it should get set in the fpga memory as the addr at 0x20000000 or whatever it is
-    // can else test it easily by creating this segment 
-    // this can just get plugged into the l2
-    // input logic [63:] dram [0:1<<20],
-
     // raw trace from HPS
     input logic trace_valid,
     output logic trace_ready,
     input logic [127:0] trace_data,
-
+    
+    // TODO: i think this is unnecessary, since l2 is what stores writes
+    // these inputs need to instead be used to interact with l1
+    // yea i originally thought this was needed for grading but nate prob has his own way of looking at architectural state
+    /*
     // store commits, send to HPS
     input logic commit_ready,
     output logic commit_valid,
     output logic [VADDR_W-1:0] commit_vaddr,
     output logic [63:0] commit_value,
+    */
+    
+    // TODO: It's just my interpretation, but I think these need to be internal
+    // and the avm_m0 inputs are what need to be here
+    // so I'll do that
+    
+    output logic avm_m0_read,
+    output logic avm_m0_write,
+    output logic [255:0] avm_m0_writedata,
+    output logic [31:0] avm_m0_address,
+    input logic [255:0] avm_m0_readdata,
+    input logic avm_m0_readdatavalid,
+    output logic [31:0] avm_m0_byteenable,
+    input logic avm_m0_waitrequest,
+    output logic [10:0] avm_m0_burstcount
 
+    /*
     // sdram interface with l2
     output logic         sdram_req_valid,
     input  logic         sdram_req_ready,
@@ -37,6 +52,8 @@ module mem_top #(
     output logic [511:0] sdram_req_wdata,
     input  logic         sdram_resp_valid,
     input  logic [511:0] sdram_resp_rdata
+    */
+
 );
 
     typedef enum logic [2:0] {
@@ -45,8 +62,6 @@ module mem_top #(
         OP_MEM_RESOLVE = 2,
         OP_TLB_FILL    = 4
     } op_code;
-
-    localparam int AGE_W = ID_W + 1;
 
     // latched trace data — decouples trace_ready from trace_data contents
     logic [127:0] trace_data_r;
@@ -86,6 +101,8 @@ module mem_top #(
     logic [63:0] lq_sq_forward_data;
     logic lq_sq_conflict;
     logic lq_sq_miss;
+    logic [AGE_W-1:0] lq_head_age; 
+    logic lq_head_valid;
 
     logic l1_req_valid;
     logic [VADDR_W-1:0] l1_req_vaddr;
@@ -94,6 +111,7 @@ module mem_top #(
     logic l1_resp_valid;
     logic [ID_W-1:0] l1_resp_id;
     logic [63:0] l1_resp_data;
+    logic l1_lq_req_received;
 
     logic tlb_lookup_valid;
     logic [VADDR_W-1:0] tlb_lookup_vaddr;
@@ -226,21 +244,25 @@ module mem_top #(
         .sq_forward_data(lq_sq_forward_data),
         .sq_conflict(lq_sq_conflict),
         .sq_miss(lq_sq_miss),
+        .lq_head_age(lq_head_age),
+        .lq_head_valid(lq_head_valid),
         .l1_req_valid(l1_req_valid),
         .l1_req_vaddr(l1_req_vaddr),
         .l1_req_id(l1_req_id),
         .l1_req_ready(l1_req_ready),
+        .l1_req_received(l1_lq_req_received),
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
-        .load_complete_valid(), // TODO: should these be used? ans: i think so but am less confident, this is how we know the lq is putting out valid data from a load
-                                // right, these 3 would be used normally, but I think for this assignment only stores need to be communicated to the HPS, lmk if im misunderstanding
-
-                                // based on the trace logs, the loads have some sort of value associated with them, but im not sure what the purpose is. but i assume there has to be
-                                // some way to test if loads are working? 
+        .load_complete_valid(), // TODO: should these be used?
         .load_complete_id(),
         .load_complete_data()
     );
+
+    logic [47:0] l1_write_vaddr;
+    logic [63:0] l1_write_value;
+    logic l1_valid_out;
+
 
     store_queue #(
         .SQ_SIZE(SQ_SIZE)
@@ -256,15 +278,17 @@ module mem_top #(
         .trace_value(trace_value),
         .resolve(sq_resolve),
         .age(sq_age),
+        .lq_head_age(lq_head_age),
+        .lq_head_valid(lq_head_valid),
         .search_addr(sq_search_addr),
         .load_age(sq_load_age),
         .found(sq_found),
         .resolved(sq_resolved),
         .search_value(sq_search_value),
-        .write_vaddr(commit_vaddr),
-        .write_value(commit_value),
-        .ready_in(commit_ready),
-        .valid_out(commit_valid)
+        .write_vaddr(l1_write_vaddr),
+        .write_value(l1_write_value),
+        .ready_in(l1_req_ready),
+        .valid_out(l1_valid_out)
     );
 
     tlb #(
@@ -278,7 +302,7 @@ module mem_top #(
         .rst(rst),
         .lookup_valid(tlb_lookup_valid),
         .lookup_vaddr(tlb_lookup_vaddr),
-        .lookup_id(),
+        .lookup_id('0),
         .lookup_ready(),
         .resp_valid(tlb_resp_valid),
         .resp_id(),
@@ -291,6 +315,18 @@ module mem_top #(
         .fill_ready(tlb_fill_ready)
     );
 
+    logic l2_req_valid;
+    logic l2_req_rw;
+    logic [23:0] l2_req_paddr;
+    logic [511:0] l2_req_data;
+    logic [ID_W-1:0] l2_query_id;
+    logic [511:0] l2_evict_data;
+    logic l2_evict_valid;
+    logic l2_ready_for_req;
+    logic l2_resp_valid;
+    logic [23:0] l2_paddr;
+    logic [ID_W-1:0] l2_resp_id;
+
     // TODO: lq-l1, sq-l1, l1-l2 communication are mismatched
     l1cache #( 
     .VADDR_W(VADDR_W),
@@ -298,35 +334,91 @@ module mem_top #(
     ) l1 (
         .clk(clk),
         .reset(rst),
-        .vaddr(l1_req_vaddr),
-        .loadValid(l1_req_valid),
-        .storeValid(commit_valid),
-        .store_data(),
-        .load_id(l1_req_id),
-        .store_id(),
-        .load_id_completed(l1_resp_id),
+        .store_vaddr(l1_write_vaddr),
+        .store_id(), // TODO: this one might be necessary?
+        .storeValid(l1_valid_out),
+        .store_data(l1_write_value),
+        .store_received(),
         .store_id_completed(),
-        .l1ready(),
-        .miss_result(),
+        .store_finished(),
+        .loadValid(l1_req_valid),
+        .load_vaddr(l1_req_vaddr),
+        .load_id(l1_req_id),
+        .load_received(l1_lq_req_received),
+        .load_finished(l1_resp_valid),
+        .load_id_completed(l1_resp_id),
         .data_out(l1_resp_data),
         .data_valid(l1_resp_valid),
-        .l2_data_in(l2_resp_data),
-        .l2_data_valid(),
-        .l2_paddr(),
+        .l1ready(l1_req_ready),
+        .l2_req_valid(l2_req_valid),
+        .l2_req_rw(l2_req_rw),
+        .l2_req_paddr(l2_req_paddr),
+        .l2_req_data(l2_req_data),
+        .l2_query_id(l2_query_id),
+        .l2_evict_data(l2_evict_data), // TODO unused
+        .l2_evict_valid(l2_evict_valid), // TODO unused
+        .l2_ready_for_req(l2_ready_for_req),
+        .l2_resp_valid(l2_resp_valid),
+        .l2_resp_data(l2_resp_data),
+        .l2_paddr(l2_paddr),
+        .l2_resp_id(l2_resp_id),
         .tlb_paddr_in(tlb_resp_paddr),
         .tlb_paddr_ready(tlb_resp_valid),
         .tlb_vaddr_out(tlb_lookup_vaddr),
         .tlb_vaddr_valid(tlb_lookup_valid)
     );
 
+    // sdram interface with l2
+    logic         sdram_req_valid;
+    logic         sdram_req_ready;
+    logic         sdram_req_rw;
+    logic [31:0]  sdram_req_addr;
+    logic [511:0] sdram_req_wdata;
+    logic         sdram_resp_valid;
+    logic [511:0] sdram_resp_rdata;
+
     l2cache l2 (
-        .clk_in(clk),
-        .l1_req_valid(),
-        .l1_req_rw(),
-        .l1_req_paddr(),
-        .l1_req_data(),
-        .l1_resp_valid(),
-        .l1_resp_data(l2_resp_data)
+        .clk(clk),
+        .rst(rst),
+        .l1_req_valid(l2_req_valid),
+        .l1_req_rw(l2_req_rw),
+        .l1_req_paddr(l2_req_paddr),
+        .l1_req_data(l2_req_data),
+        .l1_query_id(l2_query_id),
+        .l1_ready_for_input(l2_ready_for_req),
+        .l1_resp_valid(l2_resp_valid),
+        .l1_resp_data(l2_resp_data),
+        .l1_output_id(l2_resp_id),
+        .sdram_req_valid(sdram_req_valid),
+        .sdram_req_ready(sdram_req_ready),
+        .sdram_req_rw(sdram_req_rw),
+        .sdram_req_addr(sdram_req_addr),
+        .sdram_req_wdata(sdram_req_wdata),
+        .sdram_resp_valid(sdram_resp_valid),
+        .sdram_resp_rdata(sdram_resp_rdata)
     );
+
+    sdram ram (
+       .clk(clk),
+       .reset(rst),
+       .req_valid(sdram_req_valid),
+       .req_ready(sdram_req_ready),
+       .req_rw(sdram_req_rw),
+       .req_addr(sdram_req_addr),
+       .req_wdata(sdram_req_wdata),
+       .resp_valid(sdram_resp_valid),
+       .resp_rdata(sdram_resp_rdata),
+
+        // TODO: is this done correctly?
+       .avm_m0_read(avm_m0_read),
+       .avm_m0_write(avm_m0_write),
+       .avm_m0_writedata(avm_m0_writedata),
+       .avm_m0_address(avm_m0_address),
+       .avm_m0_readdata(avm_m0_readdata),
+       .avm_m0_readdatavalid(avm_m0_readdatavalid),
+       .avm_m0_byteenable(avm_m0_byteenable),
+       .avm_m0_waitrequest(avm_m0_waitrequest),
+       .avm_m0_burstcount(avm_m0_burstcount)
+   );
 
 endmodule

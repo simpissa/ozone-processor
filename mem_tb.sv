@@ -5,8 +5,6 @@ module mem_tb ();
 logic clk_in;
 logic reset;
 
-// if were gonna run this we might have to write a module for the sdram controller
-logic [63:0] dram [0:1<<20];
 logic trace_valid;
 logic trace_ready;
 logic [127:0] trace_data;
@@ -15,6 +13,24 @@ logic commit_ready;
 logic commit_valid;
 logic [47:0] commit_vaddr;
 logic [63:0] commit_value;
+
+logic sdram_req_valid;
+logic sdram_req_ready;
+logic sdram_req_rw;
+logic [31:0] sdram_req_addr;
+logic [511:0] sdram_req_wdata;
+logic sdram_resp_valid;
+logic [511:0] sdram_resp_rdata;
+
+logic avm_m0_read;
+logic avm_m0_write;
+logic [255:0] avm_m0_writedata;
+logic [31:0] avm_m0_address;
+logic [255:0] avm_m0_readdata;
+logic avm_m0_readdatavalid;
+logic [31:0] avm_m0_byteenable;
+logic avm_m0_waitrequest;
+logic [10:0] avm_m0_burstcount;
 
 mem_top #(
     .PAGE_OFF_W(12),
@@ -27,14 +43,27 @@ mem_top #(
 ) dut (
     .clk(clk_in),
     .rst(reset),
-    .dram(dram),
     .trace_valid(trace_valid),
     .trace_ready(trace_ready),
     .trace_data(trace_data),
-    .commit_ready(commit_ready),
-    .commit_valid(commit_valid),
-    .commit_vaddr(commit_vaddr),
-    .commit_value(commit_value)
+    /*
+    .sdram_req_valid(sdram_req_valid),
+    .sdram_req_ready(sdram_req_ready),
+    .sdram_req_rw(sdram_req_rw),
+    .sdram_req_addr(sdram_req_addr),
+    .sdram_req_wdata(sdram_req_wdata),
+    .sdram_resp_valid(sdram_resp_valid),
+    .sdram_resp_rdata(sdram_resp_rdata),
+    */
+    .avm_m0_read(avm_m0_read),
+    .avm_m0_write(avm_m0_write),
+    .avm_m0_writedata(avm_m0_writedata),
+    .avm_m0_address(avm_m0_address),
+    .avm_m0_readdata(avm_m0_readdata),
+    .avm_m0_readdatavalid(avm_m0_readdatavalid),
+    .avm_m0_byteenable(avm_m0_byteenable),
+    .avm_m0_waitrequest(avm_m0_waitrequest),
+    .avm_m0_burstcount(avm_m0_burstcount)
 );
 
 typedef enum logic [2:0] {

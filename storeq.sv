@@ -1,13 +1,8 @@
 `timescale 1ns / 1ps
-typedef struct packed {
-    logic [3:0] trace_id;
-    logic [47:0] trace_vaddr;
-    logic trace_vaddr_is_valid;
-    logic trace_value_is_valid;
-    logic [63:0] trace_value;
-    logic [4:0] age;
-} st_entry;
-module store_queue #(parameter int SQ_SIZE=8)(
+module store_queue #(
+    parameter int SQ_SIZE = 8,
+    parameter int AGE_W = 15
+)(
     input logic rst,           // reset
     input logic clk_in,        // clock
     
@@ -21,16 +16,20 @@ module store_queue #(parameter int SQ_SIZE=8)(
     input logic trace_value_is_valid,
     input logic [63:0] trace_value,
     input logic resolve,
-    input logic [4:0] age,      // Current age
+    input logic [AGE_W-1:0] age,      // Current age
 
-    
     // Interacting with read queue
     input logic [47:0] search_addr,
-    input logic [4:0] load_age,      // Age of load
+    input logic [AGE_W-1:0] load_age,      // Age of load
 
     output logic found, // 1 if address found, 0 if not found
     output logic resolved, // if found: 0 if unresolved, 1 if valid value
     output logic [63:0] search_value,
+
+
+    // Get age of oldest instruction in LQ
+    input logic [AGE_W-1:0] lq_head_age,
+    input logic lq_head_valid,
 
 
     // Note sure when can commit stores, should be given by ROB
@@ -40,6 +39,15 @@ module store_queue #(parameter int SQ_SIZE=8)(
     input logic ready_in,
     output logic valid_out
 );
+    typedef struct packed {
+        logic [3:0] trace_id;
+        logic [47:0] trace_vaddr;
+        logic trace_vaddr_is_valid;
+        logic trace_value_is_valid;
+        logic [63:0] trace_value;
+        logic [AGE_W-1:0] age;
+    } st_entry;
+
     st_entry SQ [SQ_SIZE];
 
     logic [$clog2(SQ_SIZE)-1:0] sq_head;
@@ -52,7 +60,7 @@ module store_queue #(parameter int SQ_SIZE=8)(
     assign receive_new_data = ready_out&valid_trace;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
-    assign valid_out = (curr_entries=={SQ_SIZE{1'b1}}|curr_entries!={SQ_SIZE{1'b0}}&age-SQ[sq_head].age>=16)&!curr_unresolved[sq_head];
+    assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&!curr_unresolved[sq_head];
     assign write_new_data = valid_out & ready_in;
     assign write_vaddr = SQ[sq_head].trace_vaddr;
     assign write_value = SQ[sq_head].trace_value;
