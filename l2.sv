@@ -234,14 +234,20 @@ module l2cache #(
 
             eviction = !cache_hit && cache[stage4.set_index].set[oldest[stage4.set_index]].valid && cache[stage4.set_index].set[oldest[stage4.set_index]].dirty;
 
-            target_mshr = cache[stage4.set_index].set[oldest[stage4.set_index]].mshr_index;
-            clearing_same_mshr = (current_drain_mshr == target_mshr) && mshr_to_cache&&cache[stage4.set_index].set[oldest[stage4.set_index]].in_mshr;
-            stall=stage4.valid&&(!cache_hit&&available_mshrs == '0||!stage4.write&&sent_stage_5&&(cache_hit&&cache[stage4.set_index].set[oldest[stage4.set_index]].valid||clearing_same_mshr)||eviction&&next_pending_evict);
+            // oldest only on misses
+            target_mshr = cache_hit ? cache[stage4.set_index].set[cache_line_index].mshr_index
+                                    : cache[stage4.set_index].set[oldest[stage4.set_index]].mshr_index;
+            clearing_same_mshr = (current_drain_mshr == target_mshr) && mshr_to_cache
+                                 && (cache_hit ? cache[stage4.set_index].set[cache_line_index].in_mshr : cache[stage4.set_index].set[oldest[stage4.set_index]].in_mshr);
+            stall=stage4.valid&&(!cache_hit && available_mshrs == '0||!stage4.write&&sent_stage_5&&(cache_hit&&cache[stage4.set_index].set[cache_line_index].valid||clearing_same_mshr)||eviction&&next_pending_evict);
+           
+
             if(!stall) begin
+                logic [$clog2(NUM_WAYS)-1:0] target_line;
+                target_line = cache_hit ? cache_line_index:oldest[stage4.set_index]; // use for stage 3 forwarding
+
                 // Stage 4: handling hit/miss and modifying cache
                 if (stage4.valid) begin
-                    logic [$clog2(NUM_WAYS)-1:0] target_line;
-                    target_line = cache_hit ? cache_line_index:oldest[stage4.set_index];
 
                     // Update LRU grid
                     for(int l=0;l<NUM_WAYS;l++) begin
@@ -266,7 +272,7 @@ module l2cache #(
                                 mshrs[target_mshr].tail <= mshrs[target_mshr].tail + 1;
                             end
                         end else begin
-                            if ((mshrs[target_mshr].valid_value||clearing_same_mshr)&&sent_stage_5) begin
+                            if ((mshrs[target_mshr].valid_value||clearing_same_mshr) && !sent_stage_5) begin
                                 // Forward value
                                 sent_stage_5 = 1'b1;
                                 l1_resp_data<=clearing_same_mshr?mshr_to_cache_data:mshrs[target_mshr].latest_value;
@@ -322,7 +328,7 @@ module l2cache #(
                 stage4 <= stage3;
                 if(stage4.valid && stage3.tag == stage4.tag && stage3.set_index == stage4.set_index) begin
                     cache_hit <= 1'b1;
-                    cache_line_index <= cache_line_index;
+                    cache_line_index <= target_line;
                 end else begin
                     logic found_tag_match;
                     found_tag_match = |tag_comparison;
@@ -334,7 +340,7 @@ module l2cache #(
                 stage3 <= stage2;
                 relevant_set <= cache[stage2.set_index];
                 if(stage4.valid && stage2.tag == stage4.tag && stage2.set_index == stage4.set_index) begin
-                    forwarded_cache_line_index<=cache_line_index;
+                    forwarded_cache_line_index<=target_line;
                     forwarded_valid <= 1'b1;
                 end else begin
                     forwarded_valid<=1'b0;
