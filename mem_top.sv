@@ -28,7 +28,22 @@ module mem_top #(
     output logic [VADDR_W-1:0] commit_vaddr,
     output logic [63:0] commit_value,
     */
+    
+    // TODO: It's just my interpretation, but I think these need to be internal
+    // and the avm_m0 inputs are what need to be here
+    // so I'll do that
+    
+    output logic avm_m0_read,
+    output logic avm_m0_write,
+    output logic [255:0] avm_m0_writedata,
+    output logic [31:0] avm_m0_address,
+    input logic [255:0] avm_m0_readdata,
+    input logic avm_m0_readdatavalid,
+    output logic [31:0] avm_m0_byteenable,
+    input logic avm_m0_waitrequest,
+    output logic [10:0] avm_m0_burstcount
 
+    /*
     // sdram interface with l2
     output logic         sdram_req_valid,
     input  logic         sdram_req_ready,
@@ -37,6 +52,8 @@ module mem_top #(
     output logic [511:0] sdram_req_wdata,
     input  logic         sdram_resp_valid,
     input  logic [511:0] sdram_resp_rdata
+    */
+
 );
 
     typedef enum logic [2:0] {
@@ -84,6 +101,8 @@ module mem_top #(
     logic [63:0] lq_sq_forward_data;
     logic lq_sq_conflict;
     logic lq_sq_miss;
+    logic [AGE_W-1:0] lq_head_age; 
+    logic lq_head_valid;
 
     logic l1_req_valid;
     logic [VADDR_W-1:0] l1_req_vaddr;
@@ -225,8 +244,8 @@ module mem_top #(
         .sq_forward_data(lq_sq_forward_data),
         .sq_conflict(lq_sq_conflict),
         .sq_miss(lq_sq_miss),
-        .lq_head_age(),
-        .lq_head_valid(),
+        .lq_head_age(lq_head_age),
+        .lq_head_valid(lq_head_valid),
         .l1_req_valid(l1_req_valid),
         .l1_req_vaddr(l1_req_vaddr),
         .l1_req_id(l1_req_id),
@@ -239,6 +258,11 @@ module mem_top #(
         .load_complete_id(),
         .load_complete_data()
     );
+
+    logic [47:0] l1_write_vaddr;
+    logic [63:0] l1_write_value;
+    logic l1_valid_out;
+
 
     store_queue #(
         .SQ_SIZE(SQ_SIZE)
@@ -254,15 +278,17 @@ module mem_top #(
         .trace_value(trace_value),
         .resolve(sq_resolve),
         .age(sq_age),
+        .lq_head_age(lq_head_age),
+        .lq_head_valid(lq_head_valid),
         .search_addr(sq_search_addr),
         .load_age(sq_load_age),
         .found(sq_found),
         .resolved(sq_resolved),
         .search_value(sq_search_value),
-        .write_vaddr(commit_vaddr),
-        .write_value(commit_value),
-        .ready_in(commit_ready), // TODO: might be l1_req_ready?
-        .valid_out(commit_valid)
+        .write_vaddr(l1_write_vaddr),
+        .write_value(l1_write_value),
+        .ready_in(l1_req_ready),
+        .valid_out(l1_valid_out)
     );
 
     tlb #(
@@ -291,16 +317,15 @@ module mem_top #(
 
     logic l2_req_valid;
     logic l2_req_rw;
-    logic l2_req_paddr;
-    logic l2_req_data;
-    logic l2_query_id;
-    logic l2_evict_data;
+    logic [23:0] l2_req_paddr;
+    logic [511:0] l2_req_data;
+    logic [ID_W-1:0] l2_query_id;
+    logic [511:0] l2_evict_data;
     logic l2_evict_valid;
     logic l2_ready_for_req;
     logic l2_resp_valid;
-    logic l2_resp_data;
-    logic l2_paddr;
-    logic l2_resp_id;
+    logic [23:0] l2_paddr;
+    logic [ID_W-1:0] l2_resp_id;
 
     // TODO: lq-l1, sq-l1, l1-l2 communication are mismatched
     l1cache #( 
@@ -309,10 +334,10 @@ module mem_top #(
     ) l1 (
         .clk(clk),
         .reset(rst),
-        .store_vaddr(commit_vaddr),
-        .store_id(),
-        .storeValid(commit_valid),
-        .store_data(commit_value),
+        .store_vaddr(l1_write_vaddr),
+        .store_id(), // TODO: this one might be necessary?
+        .storeValid(l1_valid_out),
+        .store_data(l1_write_value),
         .store_received(),
         .store_id_completed(),
         .store_finished(),
@@ -343,6 +368,15 @@ module mem_top #(
         .tlb_vaddr_valid(tlb_lookup_valid)
     );
 
+    // sdram interface with l2
+    logic         sdram_req_valid;
+    logic         sdram_req_ready;
+    logic         sdram_req_rw;
+    logic [31:0]  sdram_req_addr;
+    logic [511:0] sdram_req_wdata;
+    logic         sdram_resp_valid;
+    logic [511:0] sdram_resp_rdata;
+
     l2cache l2 (
         .clk(clk),
         .rst(rst),
@@ -363,5 +397,28 @@ module mem_top #(
         .sdram_resp_valid(sdram_resp_valid),
         .sdram_resp_rdata(sdram_resp_rdata)
     );
+
+    sdram ram (
+       .clk(clk),
+       .reset(rst),
+       .req_valid(sdram_req_valid),
+       .req_ready(sdram_req_ready),
+       .req_rw(sdram_req_rw),
+       .req_addr(sdram_req_addr),
+       .req_wdata(sdram_req_wdata),
+       .resp_valid(sdram_resp_valid),
+       .resp_rdata(sdram_resp_rdata),
+
+        // TODO: is this done correctly?
+       .avm_m0_read(avm_m0_read),
+       .avm_m0_write(avm_m0_write),
+       .avm_m0_writedata(avm_m0_writedata),
+       .avm_m0_address(avm_m0_address),
+       .avm_m0_readdata(avm_m0_readdata),
+       .avm_m0_readdatavalid(avm_m0_readdatavalid),
+       .avm_m0_byteenable(avm_m0_byteenable),
+       .avm_m0_waitrequest(avm_m0_waitrequest),
+       .avm_m0_burstcount(avm_m0_burstcount)
+   );
 
 endmodule
