@@ -193,12 +193,6 @@ module l1cache #(
     if (DBG)
         $write("st2 block => %b st3 block => %b tlb_valid => %b. ", stage2_blocked, stage3_blocked, tlb_vaddr_valid);
 
-
-    // TODO: is there a bug where all stages are blocked but we still receive load/store requests?
-    // It's not like this bit can exit...
-    // It could be that this relies on the lq/sq having loadValid/storeValid low if l1ready isn't high,
-    // but can't hurt to look into it more
-    
     // used to be ~stage3_blocked & below, but stage2_blocked is 1 if stage3 is blocked, so i think its 
     // redundant
     if(~stage2_blocked) begin
