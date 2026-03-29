@@ -22,6 +22,9 @@ logic [63:0] sq_forward_data;
 logic sq_conflict;
 logic sq_miss;
 
+logic lq_head_valid;
+logic [4:0] lq_head_age;
+
 logic l1_req_valid;
 logic [47:0] l1_req_vaddr;
 logic [3:0] l1_req_id;
@@ -36,7 +39,7 @@ logic load_complete_valid;
 logic [3:0] load_complete_id;
 logic [63:0] load_complete_data;
 
-load_queue #(.LQ_SIZE(8), .ID_W(4)) lq (
+load_queue #(.LQ_SIZE(8), .ID_W(4), .AGE_W(5)) lq (
     .clk(clk_in),
     .reset(reset),
     .trace_valid(trace_valid),
@@ -54,6 +57,8 @@ load_queue #(.LQ_SIZE(8), .ID_W(4)) lq (
     .sq_forward_data(sq_forward_data),
     .sq_conflict(sq_conflict),
     .sq_miss(sq_miss),
+    .lq_head_valid(lq_head_valid),
+    .lq_head_age(lq_head_age),
     .l1_req_valid(l1_req_valid),
     .l1_req_vaddr(l1_req_vaddr),
     .l1_req_id(l1_req_id),
@@ -93,6 +98,9 @@ initial begin
     @(negedge clk_in);
 
     trace_valid = 0;
+
+    assert(lq_head_age == 2);
+    assert(lq_head_valid);
 
     @(negedge clk_in);
     
@@ -239,6 +247,7 @@ initial begin
     @(negedge clk_in);
 
     assert(!load_complete_valid);
+    assert(!lq_head_valid);
     
     $display("passed");
     $display();
