@@ -14,7 +14,7 @@ module load_queue #(
     input  logic [ID_W-1:0]   trace_id,
     input  logic [47:0]  trace_vaddr,
     input  logic         trace_vaddr_is_valid,
-    input  logic [ID_W:0] trace_age,
+    input  logic [AGE_W-1:0] trace_age,
     output logic         trace_ready,
 
     // Interface to Store Queue (for dependency checking / forwarding)
@@ -56,7 +56,7 @@ localparam N_TRACES = 1 << ID_W;
 typedef struct packed {
     logic valid;
     logic [ID_W-1:0] id;
-    logic [ID_W:0] age;
+    logic [AGE_W-1:0] age;
     logic [47:0] vaddr;
     logic addr_valid;
     logic issued;

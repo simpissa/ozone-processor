@@ -6,6 +6,7 @@ module mem_top #(
     parameter int PADDR_W = 30,
     parameter int TLB_ENTRIES = 16,
     parameter int ID_W = 4,
+    parameter int AGE_W = 15,
     parameter int LQ_SIZE = 8,
     parameter int SQ_SIZE = 8
 ) (
@@ -45,8 +46,6 @@ module mem_top #(
         OP_MEM_RESOLVE = 2,
         OP_TLB_FILL    = 4
     } op_code;
-
-    localparam int AGE_W = ID_W + 1;
 
     // latched trace data — decouples trace_ready from trace_data contents
     logic [127:0] trace_data_r;
@@ -226,10 +225,13 @@ module mem_top #(
         .sq_forward_data(lq_sq_forward_data),
         .sq_conflict(lq_sq_conflict),
         .sq_miss(lq_sq_miss),
+        .lq_head_age(),
+        .lq_head_valid(),
         .l1_req_valid(l1_req_valid),
         .l1_req_vaddr(l1_req_vaddr),
         .l1_req_id(l1_req_id),
         .l1_req_ready(l1_req_ready),
+        .l1_req_received(),
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
@@ -298,21 +300,34 @@ module mem_top #(
     ) l1 (
         .clk(clk),
         .reset(rst),
-        .vaddr(l1_req_vaddr),
-        .loadValid(l1_req_valid),
-        .storeValid(commit_valid),
-        .store_data(),
-        .load_id(l1_req_id),
+        .store_vaddr(),
         .store_id(),
-        .load_id_completed(l1_resp_id),
+        .storeValid(),
+        .store_data(),
+        .store_received(),
         .store_id_completed(),
+        .store_finished(),
+        .loadValid(),
+        .load_vaddr(),
+        .load_id(),
+        .load_received(),
+        .load_finished(),
+        .load_id_completed(),
+        .data_out(),
+        .data_valid(),
         .l1ready(),
-        .miss_result(),
-        .data_out(l1_resp_data),
-        .data_valid(l1_resp_valid),
-        .l2_data_in(l2_resp_data),
-        .l2_data_valid(),
+        .l2_req_valid(),
+        .l2_req_rw(),
+        .l2_req_paddr(),
+        .l2_req_data(),
+        .l2_query_id(),
+        .l2_evict_data(),
+        .l2_evict_valid(),
+        .l2_ready_for_req(),
+        .l2_resp_valid(),
+        .l2_resp_data(),
         .l2_paddr(),
+        .l2_resp_id(),
         .tlb_paddr_in(tlb_resp_paddr),
         .tlb_paddr_ready(tlb_resp_valid),
         .tlb_vaddr_out(tlb_lookup_vaddr),
@@ -320,13 +335,24 @@ module mem_top #(
     );
 
     l2cache l2 (
-        .clk_in(clk),
+        .clk(clk),
+        .rst(rst),
         .l1_req_valid(),
         .l1_req_rw(),
         .l1_req_paddr(),
         .l1_req_data(),
+        .l1_query_id(),
+        .l1_ready_for_input(),
         .l1_resp_valid(),
-        .l1_resp_data(l2_resp_data)
+        .l1_resp_data(l2_resp_data),
+        .l1_output_id(),
+        .sdram_req_valid(),
+        .sdram_req_ready(),
+        .sdram_req_rw(),
+        .sdram_req_addr(),
+        .sdram_req_wdata(),
+        .sdram_resp_valid(),
+        .sdram_resp_rdata()
     );
 
 endmodule
