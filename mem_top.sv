@@ -17,12 +17,16 @@ module mem_top #(
     input logic trace_valid,
     output logic trace_ready,
     input logic [127:0] trace_data,
-
+    
+    // TODO: i think this is unnecessary, since l2 is what stores writes
+    // these inputs need to instead be used to interact with l1
+    /*
     // store commits, send to HPS
     input logic commit_ready,
     output logic commit_valid,
     output logic [VADDR_W-1:0] commit_vaddr,
     output logic [63:0] commit_value,
+    */
 
     // sdram interface with l2
     output logic         sdram_req_valid,
@@ -256,7 +260,7 @@ module mem_top #(
         .search_value(sq_search_value),
         .write_vaddr(commit_vaddr),
         .write_value(commit_value),
-        .ready_in(commit_ready),
+        .ready_in(commit_ready), // TODO: might be l1_req_ready?
         .valid_out(commit_valid)
     );
 
@@ -284,6 +288,19 @@ module mem_top #(
         .fill_ready(tlb_fill_ready)
     );
 
+    logic l2_req_valid;
+    logic l2_req_rw;
+    logic l2_req_paddr;
+    logic l2_req_data;
+    logic l2_query_id;
+    logic l2_evict_data;
+    logic l2_evict_valid;
+    logic l2_ready_for_req;
+    logic l2_resp_valid;
+    logic l2_resp_data;
+    logic l2_paddr;
+    logic l2_resp_id;
+
     // TODO: lq-l1, sq-l1, l1-l2 communication are mismatched
     l1cache #( 
     .VADDR_W(VADDR_W),
@@ -291,10 +308,10 @@ module mem_top #(
     ) l1 (
         .clk(clk),
         .reset(rst),
-        .store_vaddr(),
+        .store_vaddr(commit_vaddr),
         .store_id(),
-        .storeValid(),
-        .store_data(),
+        .storeValid(commit_valid),
+        .store_data(commit_value),
         .store_received(),
         .store_id_completed(),
         .store_finished(),
@@ -307,18 +324,18 @@ module mem_top #(
         .data_out(l1_resp_data),
         .data_valid(l1_resp_valid),
         .l1ready(l1_req_ready),
-        .l2_req_valid(),
-        .l2_req_rw(),
-        .l2_req_paddr(),
-        .l2_req_data(),
-        .l2_query_id(),
-        .l2_evict_data(),
-        .l2_evict_valid(),
-        .l2_ready_for_req(),
-        .l2_resp_valid(),
-        .l2_resp_data(),
-        .l2_paddr(),
-        .l2_resp_id(),
+        .l2_req_valid(l2_req_valid),
+        .l2_req_rw(l2_req_rw),
+        .l2_req_paddr(l2_req_paddr),
+        .l2_req_data(l2_req_data),
+        .l2_query_id(l2_query_id),
+        .l2_evict_data(l2_evict_data), // TODO unused
+        .l2_evict_valid(l2_evict_valid), // TODO unused
+        .l2_ready_for_req(l2_ready_for_req),
+        .l2_resp_valid(l2_resp_valid),
+        .l2_resp_data(l2_resp_data),
+        .l2_paddr(l2_paddr),
+        .l2_resp_id(l2_resp_id),
         .tlb_paddr_in(tlb_resp_paddr),
         .tlb_paddr_ready(tlb_resp_valid),
         .tlb_vaddr_out(tlb_lookup_vaddr),
@@ -328,22 +345,22 @@ module mem_top #(
     l2cache l2 (
         .clk(clk),
         .rst(rst),
-        .l1_req_valid(),
-        .l1_req_rw(),
-        .l1_req_paddr(),
-        .l1_req_data(),
-        .l1_query_id(),
-        .l1_ready_for_input(),
-        .l1_resp_valid(),
+        .l1_req_valid(l2_req_valid),
+        .l1_req_rw(l2_req_rw),
+        .l1_req_paddr(l2_req_paddr),
+        .l1_req_data(l2_req_data),
+        .l1_query_id(l2_query_id),
+        .l1_ready_for_input(l2_ready_for_req),
+        .l1_resp_valid(l2_resp_valid),
         .l1_resp_data(l2_resp_data),
-        .l1_output_id(),
-        .sdram_req_valid(),
-        .sdram_req_ready(),
-        .sdram_req_rw(),
-        .sdram_req_addr(),
-        .sdram_req_wdata(),
-        .sdram_resp_valid(),
-        .sdram_resp_rdata()
+        .l1_output_id(l2_resp_id),
+        .sdram_req_valid(sdram_req_valid),
+        .sdram_req_ready(sdram_req_ready),
+        .sdram_req_rw(sdram_req_rw),
+        .sdram_req_addr(sdram_req_addr),
+        .sdram_req_wdata(sdram_req_wdata),
+        .sdram_resp_valid(sdram_resp_valid),
+        .sdram_resp_rdata(sdram_resp_rdata)
     );
 
 endmodule
