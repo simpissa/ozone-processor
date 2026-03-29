@@ -43,7 +43,7 @@ module l1cache #(
   output logic [ID_LENGTH-1:0] l2_query_id, // id on request
   output logic [BLOCK_SIZE*8-1:0] l2_evict_data,
   output logic l2_evict_valid, 
-  input logic l2_ready_for_resp, // is l2 ready for l1 response
+  input logic l2_ready_for_req, // is l2 ready for request
 
   // L2 Response
   input logic l2_resp_valid,
@@ -190,7 +190,10 @@ module l1cache #(
         $write("L1 Status: Checking load/store req valid. ");
     
     tlb_vaddr_out = '0;
-    
+    if (DBG)
+        $write("st2 block => %b st3 block => %b tlb_valid => %b. ", stage2_blocked, stage3_blocked, tlb_vaddr_valid);
+
+
     // TODO: is there a bug where all stages are blocked but we still receive load/store requests?
     // It's not like this bit can exit...
     // It could be that this relies on the lq/sq having loadValid/storeValid low if l1ready isn't high,
@@ -201,40 +204,20 @@ module l1cache #(
     if(~stage2_blocked) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
+      if(storeValid) begin
+          tlb_vaddr_out = store_vaddr;
+          store_received = 1;
+          if (DBG)
+              $write("Received store request");
+
+      end else if(loadValid) begin
+          tlb_vaddr_out = load_vaddr;
+          load_received = 1;
+          if (DBG)
+              $write("Received load request");
+      end
     end
 
-    if (DBG)
-        $write("st2 block => %b st3 block => %b tlb_valid => %b. ", stage2_blocked, stage3_blocked, tlb_vaddr_valid);
-
-    // This leads to a bug for multiple reasons
-    // TODO: fix
-
-    // 1) if either storeValid or loadValid is held high for the entirety of the request
-    // the l1 will get populated with the same request multiple times
-    // 2) if both storeValid and loadValid are high at the same time, there is no way to tell
-    // the load queue that it's request was not accepted.
-
-    // It's easy for me to fix both of these for the load queue (#1 should already be fixed), but
-    // I'm less familiar with how the store queue works and don't want to break anything in my attempt
-    // to make a solution
-
-    // I added the load_received and store_received outputs to help the queues determine when their 
-    // request has been taken in. To whoever fixes sq, do with that as you will, and delete it if you
-    // find a way to fix without using it. 
-
-    if(storeValid) begin
-      tlb_vaddr_out = store_vaddr;
-      store_received = 1;
-      if (DBG)
-          $write("Received store request");
-
-    end else if(loadValid) begin
-      tlb_vaddr_out = load_vaddr;
-      load_received = 1;
-      if (DBG)
-          $write("Received load request");
-
-    end
     if (DBG)
         $display();
   end
@@ -408,9 +391,9 @@ module l1cache #(
     l2_req_data = '0;
     l2_query_id = '0;
 
-    stage3_l2_full_block = (~l2_ready_for_resp & stage3.valid & stage3.miss);
+    stage3_l2_full_block = (~l2_ready_for_req & stage3.valid & stage3.miss);
     stage3_mshr_block = mshr_out_valid | mshr_should_stall;
-    stage3_blocked = mshr_out_valid | mshr_should_stall | (~l2_ready_for_resp & stage3.valid & stage3.miss);
+    stage3_blocked = mshr_out_valid | mshr_should_stall | (~l2_ready_for_req & stage3.valid & stage3.miss);
     if(mshr_out_valid) begin
       stage3_blocked = 1'b1;
       if(mshr_is_store_out) begin
@@ -434,7 +417,7 @@ module l1cache #(
         store_finished = 1'b1;
         store_id_completed = stage3.instr_id;
       end
-    end else if(stage3.valid & l2_ready_for_resp) begin 
+    end else if(stage3.valid & l2_ready_for_req) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
       l2_req_valid = 1'b1;
       l2_req_paddr = stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)];
