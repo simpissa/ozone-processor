@@ -30,6 +30,7 @@ module l2cache #(
     output logic l1_resp_valid,
     output logic [BLOCK_SIZE*8-1:0] l1_resp_data,
     output logic [ID_LENGTH-1:0] l1_output_id,
+    output logic [WORD_ADDR_SIZE-1:0] l1_output_paddr,
     
 
     // Query SDRAM
@@ -196,6 +197,7 @@ module l2cache #(
                 read_pos = $clog2(MSHR_QUEUE_SIZE)'($clog2(mshrs[current_drain_mshr].reads&(~mshrs[current_drain_mshr].reads+1)));
                 sent_stage_5 = 1'b1;
                 l1_output_id <= mshrs[current_drain_mshr].queue[read_pos].id;
+                l1_output_paddr <= {mshrs[current_drain_mshr].tag,mshrs[current_drain_mshr].set_index};
                 if(read_pos == '0) begin
                     l1_resp_data <= mshrs[current_drain_mshr].queue[0].data;    // Data is from SDRAM answer
                 end else begin
@@ -277,6 +279,7 @@ module l2cache #(
                                 sent_stage_5 = 1'b1;
                                 l1_resp_data<=clearing_same_mshr?mshr_to_cache_data:mshrs[target_mshr].latest_value;
                                 l1_output_id <= stage4.id;
+                                l1_output_paddr <= {stage4.tag,stage4.set_index};
                             end else begin
                                 // Add to MSHR queue
                                 mshrs[target_mshr].queue[mshrs[target_mshr].tail].id <= stage4.id;
@@ -295,6 +298,7 @@ module l2cache #(
                                 sent_stage_5 = 1'b1;
                                 l1_resp_data <= cache[stage4.set_index].set[target_line].data;
                                 l1_output_id <= stage4.id;
+                                l1_output_paddr <= {stage4.tag,stage4.set_index};
                             end else begin
                                 // Read miss, put read into a new MSHR and reserve spot in cache line
                                 mshrs[tail_mshr].tag <= stage4.tag;
