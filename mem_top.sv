@@ -275,7 +275,7 @@ module mem_top #(
         .rst(rst),
         .lookup_valid(tlb_lookup_valid),
         .lookup_vaddr(tlb_lookup_vaddr),
-        .lookup_id(),
+        .lookup_id('0),
         .lookup_ready(),
         .resp_valid(tlb_resp_valid),
         .resp_id(),
