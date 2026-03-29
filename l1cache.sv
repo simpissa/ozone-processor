@@ -107,16 +107,19 @@ module l1cache #(
   tag_arr_set[NUM_SETS-1:0] tag_arr;
 
   task print_cache;
-    $display("<--------------------------------- INTERNAL CACHE STATE ---------------------------------->\n");
-    $display("|-----------------------------------------------------------------------------------------|");
+    $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
+    $display("|-----------------------------------------------------------------------------------------------|");
+    $write("| SET ");
     for (int i = 0; i < NUM_WAYS; ++i) begin
       $write("| %1s | %1s | %3s | %-7s | %-18s ", "V", "D", "LRU", "Tag", "Data");
     end
     $display("|");
-    $display("|-----------------------------------------------------------------------------------------|");
+    $display("|-----------------------------------------------------------------------------------------------|");
     for (int i = 0; i < NUM_SETS; ++i) begin
+        $write("| %3d ", i);
       for (int j = 0; j < NUM_WAYS; ++j) begin
-        $write("| %1b | %1b |  %1b  | 0x%05x | 0x%016x ", 
+        $write("| %1b | %1b |  %1b  | 0x%05x | 0x%016x ",
+            
             tag_arr[i].valid[i],
             tag_arr[i].dirty[j],
             tag_arr[i].lru == 1'(j) ? 0'b1 : 0'b0,
@@ -126,7 +129,7 @@ module l1cache #(
       end
       $display("|");
     end
-    $display("|-----------------------------------------------------------------------------------------|");
+    $display("|-----------------------------------------------------------------------------------------------|");
 
     $display("\nStage 2 Info: valid %b store %b set %d vaddr %012x", stage2.valid, stage2.is_store, 
                     stage2.set_index, stage2.vaddr);
@@ -192,8 +195,10 @@ module l1cache #(
     // It's not like this bit can exit...
     // It could be that this relies on the lq/sq having loadValid/storeValid low if l1ready isn't high,
     // but can't hurt to look into it more
-
-    if(~stage3_blocked & ~stage2_blocked) begin
+    
+    // used to be ~stage3_blocked & below, but stage2_blocked is 1 if stage3 is blocked, so i think its 
+    // redundant
+    if(~stage2_blocked) begin
       l1ready = 1'b1;
       tlb_vaddr_valid = is_valid;
     end
