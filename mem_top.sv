@@ -13,12 +13,6 @@ module mem_top #(
     input logic clk,
     input logic rst,
 
-    // I think the best way to do dram is to take as an input to mem_top?
-    // That way it should get set in the fpga memory as the addr at 0x20000000 or whatever it is
-    // can else test it easily by creating this segment 
-    // this can just get plugged into the l2
-    // input logic [63:] dram [0:1<<20],
-
     // raw trace from HPS
     input logic trace_valid,
     output logic trace_ready,
@@ -93,6 +87,7 @@ module mem_top #(
     logic l1_resp_valid;
     logic [ID_W-1:0] l1_resp_id;
     logic [63:0] l1_resp_data;
+    logic l1_lq_req_received;
 
     logic tlb_lookup_valid;
     logic [VADDR_W-1:0] tlb_lookup_vaddr;
@@ -231,15 +226,11 @@ module mem_top #(
         .l1_req_vaddr(l1_req_vaddr),
         .l1_req_id(l1_req_id),
         .l1_req_ready(l1_req_ready),
-        .l1_req_received(),
+        .l1_req_received(l1_lq_req_received),
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_id(l1_resp_id),
         .l1_resp_data(l1_resp_data),
-        .load_complete_valid(), // TODO: should these be used? ans: i think so but am less confident, this is how we know the lq is putting out valid data from a load
-                                // right, these 3 would be used normally, but I think for this assignment only stores need to be communicated to the HPS, lmk if im misunderstanding
-
-                                // based on the trace logs, the loads have some sort of value associated with them, but im not sure what the purpose is. but i assume there has to be
-                                // some way to test if loads are working? 
+        .load_complete_valid(), // TODO: should these be used?
         .load_complete_id(),
         .load_complete_data()
     );
@@ -307,15 +298,15 @@ module mem_top #(
         .store_received(),
         .store_id_completed(),
         .store_finished(),
-        .loadValid(),
-        .load_vaddr(),
-        .load_id(),
-        .load_received(),
-        .load_finished(),
-        .load_id_completed(),
-        .data_out(),
-        .data_valid(),
-        .l1ready(),
+        .loadValid(l1_req_valid),
+        .load_vaddr(l1_req_vaddr),
+        .load_id(l1_req_id),
+        .load_received(l1_lq_req_received),
+        .load_finished(l1_resp_valid),
+        .load_id_completed(l1_resp_id),
+        .data_out(l1_resp_data),
+        .data_valid(l1_resp_valid),
+        .l1ready(l1_req_ready),
         .l2_req_valid(),
         .l2_req_rw(),
         .l2_req_paddr(),

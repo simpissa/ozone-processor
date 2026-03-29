@@ -63,7 +63,7 @@ module l1cache #(
   localparam int TAG_SIZE = PADDR_W-($clog2(NUM_SETS) + $clog2(BLOCK_SIZE));
 
   //  verbose debug mode
-  logic DBG = 1'b1;
+  logic DBG;
 
   typedef struct packed {
     logic [NUM_WAYS-1:0][BLOCK_SIZE*8-1:0] data;
@@ -147,6 +147,11 @@ module l1cache #(
 
   // TODO SET ALL TO DEFAULT
   initial begin 
+
+    if (!$value$plusargs("DEBUG=%b", DBG)) begin
+        DBG = 0;
+    end
+
     data_arr = 0;
     tag_arr = 0;
     stage2 = 0;

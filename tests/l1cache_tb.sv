@@ -69,7 +69,7 @@ l1cache #() dut (
     .l2_query_id(l2_query_id),
     .l2_evict_valid(l2_evict_valid),
     .l2_evict_data(l2_evict_data),
-    .l2_ready_for_resp(l2_ready_for_resp),
+    .l2_ready_for_req(l2_ready_for_resp),
     .l2_resp_valid(l2_resp_valid),
     .l2_resp_data(l2_resp_data),
     .l2_resp_id(l2_resp_id),
@@ -87,12 +87,12 @@ l1cache #() dut (
     end
   end
 
-logic dbg = 1;
+logic DBG;
 
   task print_cache;
     #1; 
 
-    if (dbg) begin
+    if (DBG) begin
         $display("<----------------------------------- CACHE PINS IN ---------------------------------->");
         $display("| %-4s | %-4s | %-5s | %-5s | %-14s | %-14s | %-18s |", "ST_V", "LD_V", "ST_ID", "LD_ID", "ST_ADDR", "LD_ADDR", "ST_DATA");
         $display("| %-4b | %-4b | %-5d | %-5d | 0x%-12x | 0x%-12x | 0x%-16x |", storeValid, loadValid, store_id, load_id, store_vaddr, load_vaddr, store_data);
@@ -246,6 +246,11 @@ task test3();
 endtask
 
 initial begin
+
+    if (!$value$plusargs("DEBUG=%b", DBG)) begin
+        DBG = 0;
+    end
+
     test1();
     test2();
     test3();

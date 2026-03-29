@@ -97,10 +97,17 @@ logic found_issue;
 logic [IDX_W-1:0] next_issue_idx;
 logic [IDX_W-1:0] issue_idx;
 
+logic DBG;
+
 assign trace_ready = !queue[tail].valid;
 
 /* initialize everything important to 0 */
 initial begin
+
+    if (!$value$plusargs("DEBUG=%b", DBG)) begin
+        DBG = 0;
+    end
+
     for (int i = 0; i < LQ_SIZE; ++i) begin
         queue[i].valid     = 0;
         queue[i].issued    = 0;
@@ -195,7 +202,8 @@ always_ff @(posedge clk) begin
     if (waiting_issue) begin
 
         if (found_issue) begin
-            $display("Loadq status: Issuing request to storeq");
+            if (DBG)
+                $display("Loadq status: Issuing request to storeq");
 
             assert(queue[next_issue_idx].valid);
             assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
@@ -229,7 +237,8 @@ always_ff @(posedge clk) begin
                 l1_req_valid <= 1;
                 issue_cache  <= 1;
                 issue_storeq <= 0;
-                $display("Loadq Status: request sent to l1");
+                if (DBG)
+                    $display("Loadq Status: request sent to l1");
             end
 
             sq_query_valid <= 0;
@@ -260,6 +269,8 @@ always_ff @(posedge clk) begin
         // but have no way of knowing we were ignore
 
         if (l1_req_received) begin
+            if (DBG)
+                $display("Loadq Status: L1 received request");
             l1_req_valid <= 0;
         end
 
@@ -278,6 +289,9 @@ always_ff @(posedge clk) begin
     // dequeue the head
     if (queue[head].completed && queue[head].valid) begin
         assert(queue[head].valid);
+
+        if (DBG)
+            $display("Loadq Status: Dequeueing head");
         // invalidate the entry for this guy
         id_map[queue[head].id] <= INVALID_IDX;
 
@@ -312,22 +326,20 @@ always_comb begin
                 && !queue[i].issued && !queue[i].conflict;
     end
 
-   /*
-    
-    $display("head: %d, tail: %d", head, tail);
-    for (int i = 0; i < LQ_SIZE; ++i) begin
-        $display("entry %d: valid %d addr %d addrvalid %d rdy %d issd %d conf %d cmpl %d",
-                i,
-                queue[i].valid,
-                queue[i].vaddr,
-                queue[i].addr_valid,
-                ready[i],
-                queue[i].issued,
-                queue[i].conflict,
-                queue[i].completed);
+    if (DBG) begin    
+        $display("head: %d, tail: %d", head, tail);
+        for (int i = 0; i < LQ_SIZE; ++i) begin
+            $display("entry %d: valid %d addr %d addrvalid %d rdy %d issd %d conf %d cmpl %d",
+                    i,
+                    queue[i].valid,
+                    queue[i].vaddr,
+                    queue[i].addr_valid,
+                    ready[i],
+                    queue[i].issued,
+                    queue[i].conflict,
+                    queue[i].completed);
+        end
     end
-
-    */
 
     found_issue = 0;
     next_issue_idx = '0;

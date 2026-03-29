@@ -16,11 +16,17 @@ l2: l2.sv tests/l2_tb.sv
 test-load: loadq
 	obj_dir/Vloadq
 
+dbg-load: loadq
+	obj_dir/Vloadq +DEBUG=1
+
 test-tlb: tlb
 	obj_dir/Vtlb
 
 test-l1: l1cache
 	obj_dir/Vl1cache
+
+debug-l1: l1cache
+	obj_dir/Vl1cache +DEBUG=1
 
 test-l2: l2
 	obj_dir/Vl2_tb
