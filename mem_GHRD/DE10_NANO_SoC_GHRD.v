@@ -63,8 +63,8 @@ reg [2:0] led_index;
 assign LED = 8'b0000_0001 << led_index; // leds!
 
 assign fpga_clk_50 = FPGA_CLK1_50;
-// HPS writes bit 1 to submit a new trace, and FPGA returns trace_ready on bit 0.
-assign trace_valid = hps_to_fpga_handshake[1] & ~hps_to_fpga_handshake_prev[1];
+// HPS writes bit 0 to submit a new trace, and FPGA returns trace_ready on bit 0.
+assign trace_valid = hps_to_fpga_handshake[0] & ~hps_to_fpga_handshake_prev[0];
 assign fpga_to_hps_handshake = {127'd0, trace_ready};
 
 

@@ -22,9 +22,9 @@ static const char *TRACE_FILE = "mem-traces-v2/mem-traces-v2/traces/dgemm3_lsq88
 #define HPS_TO_FPGA_HANDSHAKE_OFFSET    16
 #define FPGA_TO_HPS_HANDSHAKE_OFFSET    32
 
-#define TRACE_VALID  0b10
+#define TRACE_VALID  0b1
 
-#define TRACE_READY  0b01
+#define TRACE_READY  0b1
 
 static void pulse_command(volatile uint64_t *cmd_reg, uint64_t mask)
 {
