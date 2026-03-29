@@ -16,6 +16,8 @@ logic [3:0] load_id_completed;
 logic [3:0] store_id_completed;
 logic store_finished;
 logic load_finished;
+logic load_received;
+logic store_received;
 
 logic l1ready;
 logic [63:0] data_out;
@@ -41,7 +43,6 @@ logic tlb_paddr_ready;
 logic [47:0] tlb_vaddr_out;
 logic tlb_vaddr_valid;
 
-
 l1cache #() dut (
     .clk(clk),
     .reset(reset),
@@ -56,6 +57,8 @@ l1cache #() dut (
     .store_id_completed(store_id_completed),
     .store_finished(store_finished),
     .load_finished(load_finished),
+    .load_received(load_received),
+    .store_received(store_received),
     .l1ready(l1ready),
     .data_out(data_out),
     .data_valid(data_valid),
@@ -84,8 +87,7 @@ l1cache #() dut (
     end
   end
 
-logic dbg;
-assign dbg = 0;
+logic dbg = 1;
 
   task print_cache;
     #1; 
@@ -132,9 +134,9 @@ assign dbg = 0;
     reset = 1;
     @(negedge clk);
     reset = 0;
+    @(negedge clk);
 
   endtask;
-    
 
 task test1;
   @(negedge clk);
@@ -155,23 +157,33 @@ task test1;
     #1  
     assert(tlb_vaddr_valid);
     assert(tlb_vaddr_out == 48'h1FFFFFFFFFFF);
+    assert(load_received);
+
+    
 
   print_cache();
 
   @(negedge clk);
+
   $display("Second stage, should have the tlb data returned");
   loadValid = 1'b0;
   tlb_paddr_ready = 1'b1;
   tlb_paddr_in = 30'h0FFFFFFF;
+
+  #1
   print_cache();
 
   @(negedge clk);
   $display("Third stage, should have output for l2 miss");
   tlb_paddr_ready = 1'b0;
+
+  #1
   print_cache();
 
   @(negedge clk);
   $display("Should persist its stage since l2 cant accept");
+
+  #1
   print_cache();
 
   @(negedge clk);
@@ -182,16 +194,61 @@ task test1;
     assert(l2_req_valid);
     assert(l2_req_paddr == tlb_paddr_in[29:6]);
     
-  print_cache();
-  @(negedge clk);
-  print_cache();
+  $display("Test I passed");
+  reset_test_state();
+endtask
 
+task test2();
+
+    $display("\n\n\n\nTest II: Test whole cache pipeline");
+    // go all the way thru with a load
+    print_cache();
+    assert(l1ready);
+
+    loadValid = 1'b1;
+    load_vaddr = 48'hfef3fff323e;
+    load_id = 4'd3;
+    
+    @(negedge clk);
+    assert(tlb_vaddr_valid);
+    assert(tlb_vaddr_out == load_vaddr);
+    assert(load_received);
+
+    loadValid = 0;
+    @(negedge clk);
+
+    tlb_paddr_in = 30'h329034fe;
+    tlb_paddr_ready = 1;
+
+    @(negedge clk);
+
+    tlb_paddr_ready = 0;
+    l2_ready_for_resp = 1;
+
+    @(negedge clk);
+
+    print_cache();
+
+    assert(l2_req_valid);
+    assert(!l2_req_rw);
+    assert(l2_req_paddr == tlb_paddr_in[29:6]);
+    assert(l2_query_id == 4'd3);
+    assert(!l2_evict_valid);
+    
+    $display("Test II passed");
+    reset_test_state();
+endtask
+
+task test3();
+    
+    $display("Test III passed");
+    reset_test_state();
 endtask
 
 initial begin
     test1();
-    reset_test_state();
-    print_cache();
+    test2();
+    test3();
 
     $finish();
 end
