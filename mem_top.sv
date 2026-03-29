@@ -18,17 +18,6 @@ module mem_top #(
     output logic trace_ready,
     input logic [127:0] trace_data,
     
-    // TODO: i think this is unnecessary, since l2 is what stores writes
-    // these inputs need to instead be used to interact with l1
-    // yea i originally thought this was needed for grading but nate prob has his own way of looking at architectural state
-    /*
-    // store commits, send to HPS
-    input logic commit_ready,
-    output logic commit_valid,
-    output logic [VADDR_W-1:0] commit_vaddr,
-    output logic [63:0] commit_value,
-    */
-    
     // TODO: It's just my interpretation, but I think these need to be internal
     // and the avm_m0 inputs are what need to be here
     // so I'll do that
