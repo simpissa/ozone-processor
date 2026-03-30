@@ -139,9 +139,8 @@ initial begin
         // This line needs to come before the while loop, otherwise the always_comb that updates
         // trace_ready will not run
         trace_data = trace_line;
-        #1 // let propogate
-
         trace_valid = 1;
+        #1
         while (!trace_ready) begin
             #1;
         end
@@ -149,11 +148,9 @@ initial begin
             
         @(negedge clk_in);
         @(negedge clk_in);
-        @(negedge clk_in);
         trace_valid = 0;
 
         $display("sdram vals: valid %b ready %b rw %b addr 0x%08x ", sdram_req_valid, sdram_req_ready, sdram_req_rw, sdram_req_addr);
-        sdram_resp_valid = 0;
         
         if (sdram_req_valid) begin
             sdram_resp_valid = 1;
@@ -165,10 +162,13 @@ initial begin
             end else begin
                 sdram[offset] = sdram_req_wdata;
             end
+    
+            @(negedge clk_in);
+            sdram_resp_valid = 0;
         end
 
         count++;
-        if (count >= 15) begin
+        if (count >= 100) begin
             $display("... (Trace continues, truncated at 100 lines) ... ");
             break;
         end
