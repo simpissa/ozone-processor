@@ -29,8 +29,8 @@ module l1cache #(
   // TODO: is load_finished the same as data_valid? if so, remove one 
   output logic load_finished,
   output logic [ID_LENGTH-1:0] load_id_completed,
-  // output logic [63:0] data_out,
-  // output logic data_valid,
+  output logic [63:0] data_out,
+  output logic data_valid,
   
   // relevant to both lq and sq
   output logic l1ready,
@@ -41,8 +41,8 @@ module l1cache #(
   output logic [PADDR_W-$clog2(BLOCK_SIZE)-1:0] l2_req_paddr, // physical addr associated w/ request
   output logic [63:0] l2_req_data, // data for write request
   output logic [ID_LENGTH-1:0] l2_query_id, // id on request
-  output logic [BLOCK_SIZE*8-1:0] l2_evict_data,
-  output logic l2_evict_valid, 
+  // output logic [BLOCK_SIZE*8-1:0] l2_evict_data,
+  // output logic l2_evict_valid, 
   input logic l2_ready_for_req, // is l2 ready for request
 
   // L2 Response
@@ -469,7 +469,6 @@ module l1cache #(
   always_ff @(posedge clk) begin
     // Update cache with normal state if not updating with l2
     // l2 should take priority with updating if on a miss, use mshr to determine
-    l2_evict_valid <= 1'b0;
     if(mshr_out_valid & mshr_is_store_out) begin
       data_arr[mshr_set].data[mshr_way][mshr_offset*8 +: 64] <= mshr_data_out;
     end else if(l2_resp_valid) begin
