@@ -66,10 +66,10 @@ typedef struct packed {
 } lq_entry;
 
 typedef enum logic [2:0] {
-    OP_MEM_LOAD    = 0, // perform memory load
-    OP_MEM_STORE   = 1, // shouldn't need
-    OP_MEM_RESOLVE = 2, // resolve vaddr
-    OP_TLB_FILL    = 4  // shouldn't need
+    OP_MEM_LOAD    = 3'd0, // perform memory load
+    OP_MEM_STORE   = 3'd1, // shouldn't need
+    OP_MEM_RESOLVE = 3'd2, // resolve vaddr
+    OP_TLB_FILL    = 3'd4  // shouldn't need
 } op_code;
 
 logic [IDX_W-1:0] head;
@@ -97,16 +97,10 @@ logic found_issue;
 logic [IDX_W-1:0] next_issue_idx;
 logic [IDX_W-1:0] issue_idx;
 
-logic DBG;
-
 assign trace_ready = !queue[tail].valid;
 
 /* initialize everything important to 0 */
 initial begin
-
-    if (!$value$plusargs("DEBUG=%b", DBG)) begin
-        DBG = 0;
-    end
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
         queue[i].valid     = 0;
@@ -161,16 +155,10 @@ always_ff @(posedge clk) begin
     if (trace_valid) begin
 
         if (trace_op == OP_MEM_LOAD) begin
-            if (DBG)
-                $display("L1 Status: Received Load trace.");
             // check if queue is full
             // if tail == head, then valid bit on queue head tells us if its full or empty
             // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
             if (tail != head || !queue[head].valid) begin
-                if (DBG)
-                    $display("L1 Status: Processing Load trace.");
-                assert(!queue[tail].valid);
-
                 id_map[trace_id] <= { 1'b0, tail };
 
                 queue[tail].id          <= trace_id;
@@ -186,14 +174,8 @@ always_ff @(posedge clk) begin
             end
 
         end else if (trace_op == OP_MEM_RESOLVE) begin
-            if (DBG)
-                $display("L1 Status: Received Resolve trace.");
-            assert(trace_vaddr_is_valid);
-
             // do we actually have something for this trace_id, or is it just for a store?
             if (id_map[trace_id] != INVALID_IDX) begin
-                assert(queue[id_map[trace_id][IDX_W-1:0]].valid);
-
                 queue[id_map[trace_id][IDX_W-1:0]].vaddr       <= trace_vaddr;
                 queue[id_map[trace_id][IDX_W-1:0]].addr_valid  <= trace_vaddr_is_valid;
             end
@@ -202,22 +184,12 @@ always_ff @(posedge clk) begin
             for (int i = 0; i < LQ_SIZE; ++i) begin
                 queue[i].conflict <= 0;
             end
-        end else begin
-            if (DBG)
-                $display("L1 Status: Received trace to be ignored.");
         end
     end
 
     if (waiting_issue) begin
 
         if (found_issue) begin
-            if (DBG)
-                $display("Loadq status: Issuing request to storeq");
-
-            assert(queue[next_issue_idx].valid);
-            assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
-            assert(!queue[next_issue_idx].issued);
-
             // we know what we want to try and resolve, so let's ask our store queue
             issue_storeq <= 1;
 
@@ -246,8 +218,6 @@ always_ff @(posedge clk) begin
                 l1_req_valid <= 1;
                 issue_cache  <= 1;
                 issue_storeq <= 0;
-                if (DBG)
-                    $display("Loadq Status: request sent to l1");
             end
 
             sq_query_valid <= 0;
@@ -278,14 +248,10 @@ always_ff @(posedge clk) begin
         // but have no way of knowing we were ignore
 
         if (l1_req_received) begin
-            if (DBG)
-                $display("Loadq Status: L1 received request");
             l1_req_valid <= 0;
         end
 
         if (l1_resp_valid) begin
-            assert(queue[issue_idx].id == l1_resp_id)
-
             queue[issue_idx].completed <= 1;
             queue[issue_idx].data <= l1_resp_data;
 
@@ -297,10 +263,6 @@ always_ff @(posedge clk) begin
 
     // dequeue the head
     if (queue[head].completed && queue[head].valid) begin
-        assert(queue[head].valid);
-
-        if (DBG)
-            $display("Loadq Status: Dequeueing head");
         // invalidate the entry for this guy
         id_map[queue[head].id] <= INVALID_IDX;
 
@@ -330,31 +292,19 @@ end
 
 // maintain ready list and the idx of which entry we should issue next when possible
 always_comb begin
+    int idx;
+
     for (int i = 0; i < LQ_SIZE; ++i) begin
         ready[i] = queue[i].valid && queue[i].addr_valid 
                 && !queue[i].issued && !queue[i].conflict;
-    end
-
-    if (DBG) begin    
-        $display("head: %d, tail: %d", head, tail);
-        for (int i = 0; i < LQ_SIZE; ++i) begin
-            $display("entry %d: valid %d addr %d addrvalid %d rdy %d issd %d conf %d cmpl %d",
-                    i,
-                    queue[i].valid,
-                    queue[i].vaddr,
-                    queue[i].addr_valid,
-                    ready[i],
-                    queue[i].issued,
-                    queue[i].conflict,
-                    queue[i].completed);
-        end
     end
 
     found_issue = 0;
     next_issue_idx = '0;
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
-        int idx = (32'(head) + i) % LQ_SIZE;
+        idx = int'(head);
+        idx = (idx + i) % LQ_SIZE;
 
         if (!found_issue && ready[idx]) begin
             found_issue = 1;

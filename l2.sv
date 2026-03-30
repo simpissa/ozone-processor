@@ -49,13 +49,39 @@ module l2cache #(
     localparam int NUM_SETS = CAPACITY / BLOCK_SIZE / NUM_WAYS;
     localparam int WORD_ADDR_SIZE = PADDR_W - OFFSET_SIZE;
     localparam int TAG_SIZE = WORD_ADDR_SIZE-$clog2(NUM_SETS);
+    localparam int WAY_IDX_W = $clog2(NUM_WAYS);
+    localparam int SET_IDX_W = $clog2(NUM_SETS);
+    localparam int MSHR_IDX_W = $clog2(NUM_MSHRS);
+    localparam int MSHR_QUEUE_IDX_W = $clog2(MSHR_QUEUE_SIZE);
+
+    function automatic [WAY_IDX_W-1:0] first_set_way(input logic [NUM_WAYS-1:0] mask);
+        begin
+            first_set_way = '0;
+            for (int n = NUM_WAYS-1; n >= 0; n = n - 1) begin
+                if (mask[n]) begin
+                    first_set_way = WAY_IDX_W'(n);
+                end
+            end
+        end
+    endfunction
+
+    function automatic [MSHR_QUEUE_IDX_W-1:0] first_set_mshr_queue(input logic [MSHR_QUEUE_SIZE-1:0] mask);
+        begin
+            first_set_mshr_queue = '0;
+            for (int n = MSHR_QUEUE_SIZE-1; n >= 0; n = n - 1) begin
+                if (mask[n]) begin
+                    first_set_mshr_queue = MSHR_QUEUE_IDX_W'(n);
+                end
+            end
+        end
+    endfunction
 
     // Cache
     typedef struct packed {
         logic valid;
         logic dirty;
         logic in_mshr; // Indicates if address currently in a MSHR
-        logic [$clog2(NUM_MSHRS)-1:0] mshr_index;
+        logic [MSHR_IDX_W-1:0] mshr_index;
         logic [TAG_SIZE-1:0] tag;
         logic [BLOCK_SIZE*8-1:0] data;
     } cache_line;
@@ -67,14 +93,14 @@ module l2cache #(
 
     cache_set [NUM_SETS-1:0] cache;
     logic [NUM_SETS-1:0][NUM_WAYS-1:0] zero;
-    logic [NUM_SETS-1:0][$clog2(NUM_WAYS)-1:0] oldest;
+    logic [NUM_SETS-1:0][WAY_IDX_W-1:0] oldest;
     genvar i,j;
     generate
         for (i=0;i<NUM_SETS;i++) begin: init_cache
             for(j=0;j<NUM_WAYS;j++) begin: init_zero
                 assign zero[i][j] = (cache[i].grid[j] == '0);
             end
-            assign oldest[i] = $clog2(NUM_WAYS)'($clog2(zero[i]&(~zero[i]+1)));
+            assign oldest[i] = first_set_way(zero[i]);
         end
     endgenerate
 // task print_cache;
@@ -104,11 +130,11 @@ module l2cache #(
 
     typedef struct packed {
         mshr_entry [MSHR_QUEUE_SIZE-1:0] queue;
-        logic [$clog2(MSHR_QUEUE_SIZE)-1:0] tail;
+        logic [MSHR_QUEUE_IDX_W-1:0] tail;
         logic [MSHR_QUEUE_SIZE-1:0] reads;  // Indicates where the read operations in mhsr are
-        logic [$clog2(NUM_WAYS)-1:0] cache_line_index;   // Index of corresponding cache line in cache set
+        logic [WAY_IDX_W-1:0] cache_line_index;   // Index of corresponding cache line in cache set
         logic [TAG_SIZE-1:0] tag;
-        logic [$clog2(NUM_SETS)-1:0] set_index;
+        logic [SET_IDX_W-1:0] set_index;
         logic [BLOCK_SIZE*8-1:0] latest_value;  // Keep track of latest store into queue
         logic valid_value;
     } mshr;
@@ -119,16 +145,16 @@ module l2cache #(
     logic [NUM_MSHRS-1:0] unavailable_mshrs;
     logic [NUM_MSHRS-1:0] drain_mhsrs;
     logic [NUM_MSHRS-1:0] unsent_mshrs;
-    logic [$clog2(NUM_MSHRS)-1:0] head_mshr;    // MSHR entry currently being queried
-    logic [$clog2(NUM_MSHRS)-1:0] tail_mshr;
-    logic [$clog2(NUM_MSHRS)-1:0] sent_mshr;    // MSHR entry which is currently being sent to SDRAM
-    logic [$clog2(NUM_MSHRS)-1:0] current_drain_mshr;   // MSHR to drain
+    logic [MSHR_IDX_W-1:0] head_mshr;    // MSHR entry currently being queried
+    logic [MSHR_IDX_W-1:0] tail_mshr;
+    logic [MSHR_IDX_W-1:0] sent_mshr;    // MSHR entry which is currently being sent to SDRAM
+    logic [MSHR_IDX_W-1:0] current_drain_mshr;   // MSHR to drain
     assign available_mshrs = ~unavailable_mshrs;
 
     typedef struct packed {
         logic [ID_LENGTH-1:0] id;
         logic [TAG_SIZE-1:0] tag;
-        logic [$clog2(NUM_SETS)-1:0] set_index;
+        logic [SET_IDX_W-1:0] set_index;
         logic [BLOCK_SIZE*8-1:0] data;
         logic write;
         logic valid;
@@ -137,14 +163,14 @@ module l2cache #(
     // Stage 4 info
     general_info stage4;
     logic cache_hit;
-    logic [$clog2(NUM_WAYS)-1:0] cache_line_index;
+    logic [WAY_IDX_W-1:0] cache_line_index;
     logic pending_evict;    // 1 if waiting for cycle where can send evict store to SDRAM
 
     // Stage 3 info
     general_info stage3;
     cache_set relevant_set;    // Info of cache set corresponding to address
     logic [NUM_WAYS-1:0] tag_comparison;    // Compare tags against current stage3 info
-    logic [$clog2(NUM_WAYS)-1:0] forwarded_cache_line_index;
+    logic [WAY_IDX_W-1:0] forwarded_cache_line_index;
     logic forwarded_valid;
     genvar k;
     generate
@@ -185,10 +211,10 @@ module l2cache #(
             logic next_pending_evict;
             logic can_query;
             logic eviction;
-            logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
+            logic [MSHR_IDX_W-1:0] target_mshr;
             logic clearing_same_mshr;
             logic stall;    // Indicates whether or not to stall
-            logic [$clog2(NUM_MSHRS)-1:0] query_mshr;    // MSHR to query SDRAM on next
+            logic [MSHR_IDX_W-1:0] query_mshr;    // MSHR to query SDRAM on next
             query_mshr = head_mshr;
 
             // Stage 5: output
@@ -214,15 +240,15 @@ module l2cache #(
             // Check MSHRs for data to write to L1
             if(|drain_mhsrs) begin
                 // Send read operation to stage 5
-                logic [$clog2(MSHR_QUEUE_SIZE)-1:0] read_pos;
-                read_pos = $clog2(MSHR_QUEUE_SIZE)'($clog2(mshrs[current_drain_mshr].reads&(~mshrs[current_drain_mshr].reads+1)));
+                logic [MSHR_QUEUE_IDX_W-1:0] read_pos;
+                read_pos = first_set_mshr_queue(mshrs[current_drain_mshr].reads);
                 sent_stage_5 = 1'b1;
                 l1_output_id <= mshrs[current_drain_mshr].queue[read_pos].id;
                 l1_output_paddr <= {mshrs[current_drain_mshr].tag,mshrs[current_drain_mshr].set_index};
                 if(read_pos == '0) begin
                     l1_resp_data <= mshrs[current_drain_mshr].queue[0].data;    // Data is from SDRAM answer
                 end else begin
-                    logic [$clog2(MSHR_QUEUE_SIZE)-1:0] prev;
+                    logic [MSHR_QUEUE_IDX_W-1:0] prev;
                     prev = read_pos-1;
                     // Get forwarded data from last previous operation
                     l1_resp_data <= mshrs[current_drain_mshr].queue[prev].data;
@@ -269,7 +295,7 @@ module l2cache #(
            
 
             if(!stall) begin
-                logic [$clog2(NUM_WAYS)-1:0] target_line;
+                logic [WAY_IDX_W-1:0] target_line;
                 target_line = cache_hit ? cache_line_index:oldest[stage4.set_index]; // use for stage 3 forwarding
 
                 // Stage 4: handling hit/miss and modifying cache
@@ -362,7 +388,8 @@ module l2cache #(
                     logic found_tag_match;
                     found_tag_match = |tag_comparison;
                     cache_hit <= forwarded_valid||found_tag_match;
-                    cache_line_index <= forwarded_valid?forwarded_cache_line_index:(found_tag_match?$clog2(NUM_WAYS)'($clog2(tag_comparison)):'0);
+                    cache_line_index <= forwarded_valid ? forwarded_cache_line_index
+                                                       : (found_tag_match ? first_set_way(tag_comparison) : '0);
                 end
 
                 // Stage 2: get correct cache set

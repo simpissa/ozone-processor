@@ -50,8 +50,21 @@ module store_queue #(
 
     st_entry SQ [SQ_SIZE];
 
-    logic [$clog2(SQ_SIZE)-1:0] sq_head;
-    logic [$clog2(SQ_SIZE)-1:0] sq_tail;
+    localparam int SQ_IDX_W = $clog2(SQ_SIZE);
+
+    function automatic [SQ_IDX_W-1:0] last_set_idx(input logic [SQ_SIZE-1:0] mask);
+        begin
+            last_set_idx = '0;
+            for (int k = 0; k < SQ_SIZE; k = k + 1) begin
+                if (mask[k]) begin
+                    last_set_idx = k[SQ_IDX_W-1:0];
+                end
+            end
+        end
+    endfunction
+
+    logic [SQ_IDX_W-1:0] sq_head;
+    logic [SQ_IDX_W-1:0] sq_tail;
 
     logic receive_new_data;
     logic write_new_data;    
@@ -76,10 +89,8 @@ module store_queue #(
             if(receive_new_data) begin
                 if(resolve) begin
                     if(tag_matching != {SQ_SIZE{1'b0}}) begin
-                        logic [$clog2(SQ_SIZE)-1:0] addr;
-                        int result;
-                        result = $clog2({1'b0,tag_matching}+1)-1;
-                        addr=result[$clog2(SQ_SIZE)-1:0];
+                        logic [SQ_IDX_W-1:0] addr;
+                        addr = last_set_idx(tag_matching);
                         SQ[addr].trace_vaddr<=trace_vaddr;
                         SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
                         SQ[addr].trace_value_is_valid<=trace_value_is_valid;
@@ -129,27 +140,29 @@ module store_queue #(
 
     assign current_store_mask = match_result|curr_unresolved;
     always_comb begin
-        logic [$clog2(SQ_SIZE)-1:0] value_index;
-        int result;
+        logic [SQ_IDX_W-1:0] value_index;
+        logic [SQ_SIZE-1:0] selected_store_mask;
+
+        value_index = '0;
+        selected_store_mask = '0;
         found = current_store_mask!={SQ_SIZE{1'b0}};
         if(found) begin
             if(sq_head<sq_tail) begin
-                result=$clog2({1'b0,current_store_mask}+1)-1;
+                selected_store_mask = current_store_mask;
             end else begin
                 if ((current_store_mask&tailmask)!={SQ_SIZE{1'b0}}) begin
-                    result=$clog2({1'b0,current_store_mask&tailmask}+1)-1;
+                    selected_store_mask = current_store_mask & tailmask;
                 end else begin
-                    result=$clog2({1'b0,current_store_mask}+1)-1;
+                    selected_store_mask = current_store_mask;
                 end
             end
-            value_index=result[$clog2(SQ_SIZE)-1:0];
+            value_index = last_set_idx(selected_store_mask);
             resolved = !curr_unresolved[value_index];
             search_value = SQ[value_index].trace_value;
         end else begin
             value_index=0;
             resolved = 1'b0;
             search_value=0;
-            result=0;
         end
     end
 endmodule

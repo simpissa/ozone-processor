@@ -110,10 +110,11 @@ module tlb #(
     assign lookup_hit_ppn = ppn[lookup_hit_idx];
 
     // update lru victim
+    genvar r, c;
     generate
-        for (genvar r = 0; r < ENTRIES; r = r + 1) begin : gen_row_zero
+        for (r = 0; r < ENTRIES; r = r + 1) begin : gen_row_zero
             logic [ENTRIES-1:0] row_bits;
-            for (genvar c = 0; c < ENTRIES; c = c + 1) begin : gen_row_bits
+            for (c = 0; c < ENTRIES; c = c + 1) begin : gen_row_bits
                 assign row_bits[c] = (r == c) ? 1'b0 : lru_mat[r][c];
             end
             assign lru_row_zero[r] = ~(|row_bits);
