@@ -77,6 +77,23 @@ module l2cache #(
             assign oldest[i] = $clog2(NUM_WAYS)'($clog2(zero[i]&(~zero[i]+1)));
         end
     endgenerate
+// task print_cache;
+//     $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
+//     $display("|-----------------------------------------------------------------------------------------------|");
+//     for (int i = 0; i < NUM_SETS; ++i) begin
+//         $write("| %3d ", i);
+//       for (int j = 0; j < NUM_WAYS; ++j) begin
+//         $write("| %1b | %1b |  %08h",
+            
+//             cache[i].set[j].valid,
+//             cache[i].set[j].dirty,
+//             cache[i].set[j].tag,
+//         );  
+//       end
+//       $display("|");
+//     end
+        
+//   endtask
 
     
     // Stage 4 MSHRs
@@ -101,12 +118,12 @@ module l2cache #(
     logic [NUM_MSHRS-1:0] available_mshrs;
     logic [NUM_MSHRS-1:0] unavailable_mshrs;
     logic [NUM_MSHRS-1:0] drain_mhsrs;
+    logic [NUM_MSHRS-1:0] unsent_mshrs;
     logic [$clog2(NUM_MSHRS)-1:0] head_mshr;    // MSHR entry currently being queried
     logic [$clog2(NUM_MSHRS)-1:0] tail_mshr;
     logic [$clog2(NUM_MSHRS)-1:0] sent_mshr;    // MSHR entry which is currently being sent to SDRAM
     logic [$clog2(NUM_MSHRS)-1:0] current_drain_mshr;   // MSHR to drain
     assign available_mshrs = ~unavailable_mshrs;
-
 
     typedef struct packed {
         logic [ID_LENGTH-1:0] id;
@@ -143,6 +160,7 @@ module l2cache #(
     general_info stage1;
 
     always_ff @(posedge clk) begin
+        // print_cache();
         if(rst) begin
             l1_ready_for_input<=1'b1;
             l1_resp_valid <=1'b0;
@@ -150,6 +168,7 @@ module l2cache #(
             mshrs <= '0;
             unavailable_mshrs <= '0;
             drain_mhsrs <= '0;
+            unsent_mshrs <= '0;
             sent_mshr <= '0;
             stage1 <= '0;
             stage2 <= '0;
@@ -169,6 +188,9 @@ module l2cache #(
             logic [$clog2(NUM_MSHRS)-1:0] target_mshr;
             logic clearing_same_mshr;
             logic stall;    // Indicates whether or not to stall
+            logic [$clog2(NUM_MSHRS)-1:0] query_mshr;    // MSHR to query SDRAM on next
+            query_mshr = head_mshr;
+
             // Stage 5: output
             // Outputs to L1 cache should be assigned, assume L1 always able to receive data.
             // Stage 5 is just the outputs to L1 cache
@@ -223,10 +245,13 @@ module l2cache #(
             next_pending_evict = pending_evict;
             // If SDRAM accepts input, can move onto requesting next input
             if (sdram_req_valid && sdram_req_ready) begin
+                // $display("test: %b %08h %08h\n",sdram_req_rw,sdram_req_addr,sdram_req_wdata);
                 if(pending_evict) begin
                     next_pending_evict = 1'b0;  // SDRAM processing writing eviction
                 end else begin
                     head_mshr <= head_mshr + 1;
+                    unsent_mshrs[head_mshr] <= 1'b0;
+                    query_mshr = head_mshr + 1;
                 end
             end
             
@@ -312,6 +337,7 @@ module l2cache #(
                                 cache[stage4.set_index].set[target_line].mshr_index <= tail_mshr;
                                 cache[stage4.set_index].set[target_line].tag <= stage4.tag;
                                 unavailable_mshrs[tail_mshr] <= 1'b1;
+                                unsent_mshrs[tail_mshr] <= 1'b1;
                                 tail_mshr <= tail_mshr + 1;
                             end
                         end
@@ -365,11 +391,11 @@ module l2cache #(
                 stage1.valid <= 1'b0;
             end
 
-            if ((unavailable_mshrs^drain_mhsrs) != '0 && can_query) begin
-                // Query read from a MSHR to SDRAM (make query using head_mshr info)
+            if (unsent_mshrs[query_mshr]&& can_query) begin
+                // Query read from a MSHR to SDRAM (make query using query_mshr info)
                 sdram_req_rw <= 1'b0;
-                sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[head_mshr].tag,mshrs[head_mshr].set_index, {OFFSET_SIZE{1'b0}}};
-                sdram_req_wdata <= mshrs[head_mshr].queue[0].data;
+                sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[query_mshr].tag,mshrs[query_mshr].set_index, {OFFSET_SIZE{1'b0}}};
+                sdram_req_wdata <= mshrs[query_mshr].queue[0].data;
                 can_query = 1'b0;
             end
 
