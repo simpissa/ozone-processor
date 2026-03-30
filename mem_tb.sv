@@ -149,7 +149,6 @@ initial begin
             
         @(negedge clk_in);
         @(negedge clk_in);
-        @(negedge clk_in);
         trace_valid = 0;
 
         $display("sdram vals: valid %b ready %b rw %b addr 0x%08x ", sdram_req_valid, sdram_req_ready, sdram_req_rw, sdram_req_addr);
