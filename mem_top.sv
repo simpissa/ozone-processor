@@ -324,7 +324,7 @@ module mem_top #(
         .load_vaddr(l1_req_vaddr),
         .load_id(l1_req_id),
         .load_received(l1_lq_req_received),
-        .load_finished(l1_resp_valid),
+        .load_finished(),
         .load_id_completed(l1_resp_id),
         .data_out(l1_resp_data),
         .data_valid(l1_resp_valid),

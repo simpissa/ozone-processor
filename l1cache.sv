@@ -149,24 +149,24 @@ module l1cache #(
     DBG = 0;
     // end
 
-    data_arr = 0;
-    tag_arr = 0;
-    stage2 = 0;
-    stage3 = 0;
+  //   data_arr = 0;
+  //   tag_arr = 0;
+  //   stage2 = 0;
+  //   stage3 = 0;
 
-    // if (DBG)
-    //     print_cache();
-  end
+  //   // if (DBG)
+  //   //     print_cache();
+  // end
 
-  always @(posedge clk) begin
-    if (reset) begin
-      if (DBG)
-          $display("Resetting internal cache state...");
-      data_arr <= '0;
-      tag_arr <= '0;
-      stage2 <= '0;
-      stage3 <= '0;
-    end
+  // always @(posedge clk) begin
+  //   if (reset) begin
+  //     if (DBG)
+  //         $display("Resetting internal cache state...");
+  //     data_arr <= '0;
+  //     tag_arr <= '0;
+  //     stage2 <= '0;
+  //     stage3 <= '0;
+  //   end
 
     // if (DBG)
     //     print_cache();
@@ -228,7 +228,9 @@ module l1cache #(
   / Stage 2 Pipeline
   */
   always_ff @(posedge clk) begin
-    if(~stage3_blocked && ~stage2_blocked) begin
+    if(reset) begin
+      stage2 <= '0;
+    end else if(~stage3_blocked && ~stage2_blocked) begin
 
         // if (DBG)
         //     $display("\nL1 Status: Propagating request data into stage II.");
@@ -301,7 +303,9 @@ module l1cache #(
   / Stage 3 Pipeline
   */
   always_ff @(posedge clk) begin
-    if((~stage2_blocked) & (~stage3_blocked)) begin
+    if(reset) begin
+      stage3 <= '0;
+    end else if((~stage2_blocked) & (~stage3_blocked)) begin
         // if (DBG) begin
         //     $display("\nL1 Status: Propagating stage II values & data/tag values into stage III.");
         //     $display("valid %b data %016x tag %05x vaddr %012x str data %016x miss %b paddr %08x",
@@ -484,7 +488,10 @@ module l1cache #(
   always_ff @(posedge clk) begin
     // Update cache with normal state if not updating with l2
     // l2 should take priority with updating if on a miss, use mshr to determine
-    if(mshr_out_valid & mshr_is_store_out) begin
+    if(reset) begin
+      data_arr <= '0;
+      tag_arr <= '0;
+    end else if(mshr_out_valid & mshr_is_store_out) begin
       data_arr[mshr_set].data[mshr_way][mshr_offset*8 +: 64] <= mshr_data_out;
     end else if(l2_resp_valid) begin
       // Bring in the data into the cache, have seperate logic for outputting instrs
