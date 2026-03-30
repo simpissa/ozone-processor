@@ -26,6 +26,8 @@ module l2_tb;
     logic [LINE_W-1:0] l1_resp_data;
     logic [ID_LENGTH-1:0] l1_output_id;
 
+    logic [WORD_ADDR_SIZE-1:0] l1_output_paddr;
+
     logic sdram_req_valid;
     logic sdram_req_ready;
     logic sdram_req_rw;
@@ -64,6 +66,7 @@ module l2_tb;
         .l1_resp_valid(l1_resp_valid),
         .l1_resp_data(l1_resp_data),
         .l1_output_id(l1_output_id),
+        .l1_output_paddr(l1_output_paddr),
         .sdram_req_valid(sdram_req_valid),
         .sdram_req_ready(sdram_req_ready),
         .sdram_req_rw(sdram_req_rw),
@@ -177,7 +180,6 @@ module l2_tb;
                 end
             end
 
-            #1;
             if (sdram_req_addr !== expected_addr) begin
                 $fatal(1, "SDRAM read addr mismatch exp=%08h got=%08h", expected_addr, sdram_req_addr);
             end
@@ -200,7 +202,6 @@ module l2_tb;
                 end
             end
 
-            #1;
             if (sdram_req_addr !== expected_addr) begin
                 $fatal(1, "SDRAM write addr mismatch exp=%08h got=%08h", expected_addr, sdram_req_addr);
             end
