@@ -39,7 +39,7 @@ module l1cache #(
   output logic l2_req_valid, // our request is valid
   output logic l2_req_rw, // read/write operation associated with request (not sure which is which, needs to be worked out w/ l2)
   output logic [PADDR_W-$clog2(BLOCK_SIZE)-1:0] l2_req_paddr, // physical addr associated w/ request
-  output logic [63:0] l2_req_data, // data for write request
+  output logic [BLOCK_SIZE*8-1:0] l2_req_data, // data for write request
   output logic [ID_LENGTH-1:0] l2_query_id, // id on request
   // output logic [BLOCK_SIZE*8-1:0] l2_evict_data,
   // output logic l2_evict_valid, 
@@ -400,6 +400,7 @@ module l1cache #(
     l2_req_paddr = '0;
     l2_req_data = '0;
     l2_query_id = '0;
+    l2_req_rw = 1'b0;
     
     stage3_curr_valid = stage3.valid;
     // Tells the mshr that this entry should look out for when l2 can take a request
