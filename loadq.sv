@@ -66,10 +66,10 @@ typedef struct packed {
 } lq_entry;
 
 typedef enum logic [2:0] {
-    OP_MEM_LOAD    = 0, // perform memory load
-    OP_MEM_STORE   = 1, // shouldn't need
-    OP_MEM_RESOLVE = 2, // resolve vaddr
-    OP_TLB_FILL    = 4  // shouldn't need
+    OP_MEM_LOAD    = 3'd0, // perform memory load
+    OP_MEM_STORE   = 3'd1, // shouldn't need
+    OP_MEM_RESOLVE = 3'd2, // resolve vaddr
+    OP_TLB_FILL    = 3'd4  // shouldn't need
 } op_code;
 
 logic [IDX_W-1:0] head;
@@ -104,9 +104,9 @@ assign trace_ready = !queue[tail].valid;
 /* initialize everything important to 0 */
 initial begin
 
-    if (!$value$plusargs("DEBUG=%b", DBG)) begin
-        DBG = 0;
-    end
+    // if (!$value$plusargs("DEBUG=%b", DBG)) begin
+    DBG = 0;
+    // end
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
         queue[i].valid     = 0;
@@ -334,6 +334,7 @@ end
 
 // maintain ready list and the idx of which entry we should issue next when possible
 always_comb begin
+	int idx;
     for (int i = 0; i < LQ_SIZE; ++i) begin
         ready[i] = queue[i].valid && queue[i].addr_valid 
                 && !queue[i].issued && !queue[i].conflict;
@@ -358,7 +359,7 @@ always_comb begin
     next_issue_idx = '0;
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
-        int idx = (32'(head) + i) % LQ_SIZE;
+        idx = (int'(head) + i) % LQ_SIZE;
 
         if (!found_issue && ready[idx]) begin
             found_issue = 1;

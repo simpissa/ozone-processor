@@ -104,38 +104,38 @@ module l1cache #(
   data_arr_set[NUM_SETS-1:0] data_arr;
   tag_arr_set[NUM_SETS-1:0] tag_arr;
 
-  task print_cache;
-    $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
-    $display("|-----------------------------------------------------------------------------------------------|");
-    $write("| SET ");
-    for (int i = 0; i < NUM_WAYS; ++i) begin
-      $write("| %1s | %1s | %3s | %-7s | %-18s ", "V", "D", "LRU", "Tag", "Data");
-    end
-    $display("|");
-    $display("|-----------------------------------------------------------------------------------------------|");
-    for (int i = 0; i < NUM_SETS; ++i) begin
-        $write("| %3d ", i);
-      for (int j = 0; j < NUM_WAYS; ++j) begin
-        $write("| %1b | %1b |  %1b  | 0x%05x | 0x%016x ",
+  // task print_cache;
+  //   $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
+  //   $display("|-----------------------------------------------------------------------------------------------|");
+  //   $write("| SET ");
+  //   for (int i = 0; i < NUM_WAYS; ++i) begin
+  //     $write("| %1s | %1s | %3s | %-7s | %-18s ", "V", "D", "LRU", "Tag", "Data");
+  //   end
+  //   $display("|");
+  //   $display("|-----------------------------------------------------------------------------------------------|");
+  //   for (int i = 0; i < NUM_SETS; ++i) begin
+  //       $write("| %3d ", i);
+  //     for (int j = 0; j < NUM_WAYS; ++j) begin
+  //       $write("| %1b | %1b |  %1b  | 0x%05x | 0x%016x ",
             
-            tag_arr[i].valid[i],
-            tag_arr[i].dirty[j],
-            tag_arr[i].lru == 1'(j) ? 0'b1 : 0'b0,
-            tag_arr[i].data[j],
-            data_arr[i].data[j]
-        );  
-      end
-      $display("|");
-    end
-    $display("|-----------------------------------------------------------------------------------------------|");
+  //           tag_arr[i].valid[i],
+  //           tag_arr[i].dirty[j],
+  //           (tag_arr[i].lru == j[0]),
+  //           tag_arr[i].data[j],
+  //           data_arr[i].data[j]
+  //       );  
+  //     end
+  //     $display("|");
+  //   end
+  //   $display("|-----------------------------------------------------------------------------------------------|");
 
-    $display("\nStage 2 Info: valid %b store %b set %d vaddr %012x", stage2.valid, stage2.is_store, 
-                    stage2.set_index, stage2.vaddr);
+  //   $display("\nStage 2 Info: valid %b store %b set %d vaddr %012x", stage2.valid, stage2.is_store, 
+  //                   stage2.set_index, stage2.vaddr);
 
-    $display("Stage 3 Info: valid %b store %b set idx %d way idx %d miss %b paddr %08x\n", stage3.valid,
-                    stage3.is_store, stage3.set_index, stage3.way_store_index, stage3.miss, stage3.paddr);
+  //   $display("Stage 3 Info: valid %b store %b set idx %d way idx %d miss %b paddr %08x\n", stage3.valid,
+  //                   stage3.is_store, stage3.set_index, stage3.way_store_index, stage3.miss, stage3.paddr);
         
-  endtask
+  // endtask
 
   logic stage2_blocked, stage3_blocked;
   logic l2_full_block, mshr_full_block;
@@ -145,9 +145,9 @@ module l1cache #(
 
   // TODO SET ALL TO DEFAULT
   initial begin 
-    if (!$value$plusargs("DEBUG=%b", DBG)) begin
-        DBG = 0;
-    end
+    // if (!$value$plusargs("DEBUG=%b", DBG)) begin
+    DBG = 0;
+    // end
 
     data_arr = 0;
     tag_arr = 0;
@@ -472,9 +472,13 @@ module l1cache #(
     data_valid = load_finished;
   end
 
-  logic[$clog2(NUM_SETS)-1:0] l2_paddr_set = l2_paddr[$clog2(NUM_SETS)-1:0];
-  logic[$clog2(NUM_WAYS)-1:0] way_evicted = tag_arr[l2_paddr_set].lru;
-  logic[TAG_SIZE-1:0] l2_paddr_tag = l2_paddr[$clog2(NUM_SETS) +: TAG_SIZE];
+  logic[$clog2(NUM_SETS)-1:0] l2_paddr_set;
+  logic[$clog2(NUM_WAYS)-1:0] way_evicted;
+  logic[TAG_SIZE-1:0] l2_paddr_tag;
+
+  assign l2_paddr_set = l2_paddr[$clog2(NUM_SETS)-1:0];
+  assign way_evicted = tag_arr[l2_paddr_set].lru;
+  assign l2_paddr_tag = l2_paddr[$clog2(NUM_SETS) +: TAG_SIZE];
   
   // Update on a store
   always_ff @(posedge clk) begin

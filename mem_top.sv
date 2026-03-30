@@ -35,11 +35,12 @@ module mem_top #(
 );
 
     typedef enum logic [2:0] {
-        OP_MEM_LOAD    = 0,
-        OP_MEM_STORE   = 1,
-        OP_MEM_RESOLVE = 2,
-        OP_TLB_FILL    = 4
+        OP_MEM_LOAD    = 3'd0,
+        OP_MEM_STORE   = 3'd1,
+        OP_MEM_RESOLVE = 3'd2,
+        OP_TLB_FILL    = 3'd4
     } op_code;
+
 
     // latched trace data — decouples trace_ready from trace_data contents
     logic [127:0] trace_data_r;
