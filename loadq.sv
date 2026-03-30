@@ -161,10 +161,14 @@ always_ff @(posedge clk) begin
     if (trace_valid) begin
 
         if (trace_op == OP_MEM_LOAD) begin
+            if (DBG)
+                $display("L1 Status: Received Load trace.");
             // check if queue is full
             // if tail == head, then valid bit on queue head tells us if its full or empty
             // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
             if (tail != head || !queue[head].valid) begin
+                if (DBG)
+                    $display("L1 Status: Processing Load trace.");
                 assert(!queue[tail].valid);
 
                 id_map[trace_id] <= { 1'b0, tail };
@@ -182,6 +186,8 @@ always_ff @(posedge clk) begin
             end
 
         end else if (trace_op == OP_MEM_RESOLVE) begin
+            if (DBG)
+                $display("L1 Status: Received Resolve trace.");
             assert(trace_vaddr_is_valid);
 
             // do we actually have something for this trace_id, or is it just for a store?
@@ -196,6 +202,9 @@ always_ff @(posedge clk) begin
             for (int i = 0; i < LQ_SIZE; ++i) begin
                 queue[i].conflict <= 0;
             end
+        end else begin
+            if (DBG)
+                $display("L1 Status: Received trace to be ignored.");
         end
     end
 
