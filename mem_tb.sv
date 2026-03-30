@@ -141,6 +141,7 @@ initial begin
         #1 // let propogate
 
         while (!trace_ready) begin
+            #1
             trace_valid = 0;
         end
         trace_valid = 1;
