@@ -79,9 +79,9 @@ module store_queue #(
     logic DBG;
 
     initial begin
-        if (!$value$plusargs("SQDEBUG=%b", DBG)) begin
-            DBG = 0;
-        end
+        // if (!$value$plusargs("SQDEBUG=%b", DBG)) begin
+        DBG = 0;
+        // end
     end
 
     assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;

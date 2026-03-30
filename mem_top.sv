@@ -347,7 +347,9 @@ module mem_top #(
         .tlb_vaddr_valid(tlb_lookup_valid)
     );
 
-    l2cache l2 (
+    l2cache #( 
+    .CAPACITY(2048)
+    ) l2 (
         .clk(clk),
         .rst(rst),
         .l1_req_valid(l2_req_valid),

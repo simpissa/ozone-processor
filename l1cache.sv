@@ -145,9 +145,9 @@ module l1cache #(
 
   // TODO SET ALL TO DEFAULT
   initial begin 
-    if (!$value$plusargs("L1DEBUG=%b", DBG)) begin
-        DBG = 0;
-    end
+    // if (!$value$plusargs("L1DEBUG=%b", DBG)) begin
+    DBG = 0;
+    // end
 
   //   data_arr = 0;
   //   tag_arr = 0;
@@ -194,9 +194,9 @@ module l1cache #(
     
     tlb_vaddr_out = '0;
 
-    if (DBG) begin
-      $display("st2 blocked: %b st3 blocked: %b", stage2_blocked, stage3_blocked);
-    end
+    // if (DBG) begin
+    //   $display("st2 blocked: %b st3 blocked: %b", stage2_blocked, stage3_blocked);
+    // end
 
     // used to be ~stage3_blocked & below, but stage2_blocked is 1 if stage3 is blocked, so i think its 
     // redundant
@@ -278,8 +278,8 @@ module l1cache #(
   assign stage2_blocked = (~tlb_paddr_ready & stage2.valid) | stage3_blocked;
 
   always_comb begin
-    if(DBG) 
-      $display("TLB_ADDR %x, TLB_ADDR_IN_V %b, stage3_C_V %b, stage3_V %b, stage2_V %b, stage1_V %b ", tlb_paddr_in, tlb_paddr_ready, stage3_curr_valid, stage3.valid, stage2.valid, is_valid);
+    // if(DBG) 
+    //   $display("TLB_ADDR %x, TLB_ADDR_IN_V %b, stage3_C_V %b, stage3_V %b, stage2_V %b, stage1_V %b ", tlb_paddr_in, tlb_paddr_ready, stage3_curr_valid, stage3.valid, stage2.valid, is_valid);
     miss = 1'b1;
     tag_comps = 0;
     tag_sel = 0;
@@ -418,8 +418,8 @@ module l1cache #(
     mshr_full_block = mshr_out_valid | mshr_should_stall;
     
     stage3_blocked = mshr_full_block | l2_full_block;
-    if (DBG)
-        $display("MSHR Stall: %b, MSHR_V: %b, MSHR_REQ_V: %b, MSHR_REQ_ADDR: %x", mshr_should_stall, mshr_out_valid, mshr_l2_req_valid, mshr_l2_req_paddr);
+    // if (DBG)
+    //     $display("MSHR Stall: %b, MSHR_V: %b, MSHR_REQ_V: %b, MSHR_REQ_ADDR: %x", mshr_should_stall, mshr_out_valid, mshr_l2_req_valid, mshr_l2_req_paddr);
     if(mshr_out_valid) begin
       stage3_blocked = 1'b1;
       if(mshr_is_store_out) begin
@@ -446,7 +446,7 @@ module l1cache #(
     end 
 
     // Output line if dirty to update l2
-    if(tag_arr[l2_paddr_set].dirty[way_evicted]) begin
+    if(l2_resp_valid & tag_arr[l2_paddr_set].valid[way_evicted] & tag_arr[l2_paddr_set].dirty[way_evicted]) begin
       l2_req_valid = 1'b1;
       l2_req_rw = 1'b1;
       l2_req_data = data_arr[l2_paddr_set].data[way_evicted];
@@ -455,21 +455,21 @@ module l1cache #(
       l2_req_valid = 1'b1;
       l2_req_paddr = mshr_l2_req_paddr;
       l2_query_id = mshr_l2_req_id;
-      if (DBG)
-          $display("OUTPUTTING TO L2 THROUGH MSHR");
+      // if (DBG)
+      //     $display("OUTPUTTING TO L2 THROUGH MSHR");
     end else if(stage3.valid & l2_ready_for_req) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
       l2_req_valid = 1'b1;
       l2_req_paddr = stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)];
       l2_query_id = stage3.instr_id;
-      if (DBG)
-          $display("OUTPUTTING TO L2 THROUGH PIPE");
+      // if (DBG)
+      //     $display("OUTPUTTING TO L2 THROUGH PIPE");
     end else begin
       // Presumably output invalid
       if(stage3.valid) begin
-          if (DBG) begin
-            $display("Miss in stage 3 but l2 full, move to mshr");
-          end
+          // if (DBG) begin
+          //   $display("Miss in stage 3 but l2 full, move to mshr");
+          // end
       end
     end
 
@@ -489,7 +489,7 @@ module l1cache #(
     // Update cache with normal state if not updating with l2
     // l2 should take priority with updating if on a miss, use mshr to determine
     if(reset) begin
-      data_arr <= '0;
+      // data_arr <= '0;
       tag_arr <= '0;
     end else if(mshr_out_valid & mshr_is_store_out) begin
       data_arr[mshr_set].data[mshr_way][mshr_offset*8 +: 64] <= mshr_data_out;

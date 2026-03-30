@@ -108,23 +108,23 @@ module l2cache #(
             assign oldest[i] = $clog2(NUM_WAYS)'(clog2_NUM_WAYS(zero[i]&(~zero[i]+1)));
         end
     endgenerate
-task print_cache;
-    $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
-    $display("|-----------------------------------------------------------------------------------------------|");
-    for (int i = 0; i < NUM_SETS; ++i) begin
-        $write("| %3d ", i);
-      for (int j = 0; j < NUM_WAYS; ++j) begin
-        $write("| %1b | %1b |  %08h",
+// task print_cache;
+//     $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
+//     $display("|-----------------------------------------------------------------------------------------------|");
+//     for (int i = 0; i < NUM_SETS; ++i) begin
+//         $write("| %3d ", i);
+//       for (int j = 0; j < NUM_WAYS; ++j) begin
+//         $write("| %1b | %1b |  %08h",
             
-            cache[i].set[j].valid,
-            cache[i].set[j].dirty,
-            cache[i].set[j].tag,
-        );  
-      end
-      $display("|");
-    end
+//             cache[i].set[j].valid,
+//             cache[i].set[j].dirty,
+//             cache[i].set[j].tag,
+//         );  
+//       end
+//       $display("|");
+//     end
         
-  endtask
+//   endtask
 
     
     // Stage 4 MSHRs
@@ -195,7 +195,7 @@ task print_cache;
         if(rst) begin
             l1_ready_for_input<=1'b1;
             l1_resp_valid <=1'b0;
-            cache <= '0;
+            // cache <= '0;
             mshrs <= '0;
             unavailable_mshrs <= '0;
             drain_mhsrs <= '0;
@@ -230,7 +230,7 @@ task print_cache;
 
             // Update MSHR after receiving info from sdram
             if(sdram_resp_valid) begin
-                $display("RECEIVED FROM SDRAM\n");
+                // $display("RECEIVED FROM SDRAM\n");
                 mshrs[sent_mshr].queue[0].data <= sdram_resp_rdata;
                 if (!mshrs[sent_mshr].valid_value) begin
                     mshrs[sent_mshr].valid_value <= 1'b1;
@@ -277,7 +277,7 @@ task print_cache;
             next_pending_evict = pending_evict;
             // If SDRAM accepts input, can move onto requesting next input
             if (sdram_req_valid && sdram_req_ready) begin
-                $display("test: %b %08h %08h\n",sdram_req_rw,sdram_req_addr,sdram_req_wdata);
+                // $display("test: %b %08h %08h\n",sdram_req_rw,sdram_req_addr,sdram_req_wdata);
                 if(pending_evict) begin
                     next_pending_evict = 1'b0;  // SDRAM processing writing eviction
                 end else begin
@@ -377,7 +377,7 @@ task print_cache;
 
                         if (eviction) begin
                             // Send eviction write to SDRAM
-                            $display("PENDING: %b\n",pending_evict);
+                            // $display("PENDING: %b\n",pending_evict);
                             next_pending_evict = 1'b1;
                             can_query = 1'b0;
                             sdram_req_rw <= 1'b1;
@@ -414,7 +414,7 @@ task print_cache;
             end
             // Stage 1: get inputs, find tag, cache set
             if (l1_ready_for_input && l1_req_valid) begin
-                $display("TEST\n %08h %08h %08h %b\n",l1_query_id,l1_req_paddr,l1_req_data,l1_req_rw);
+                // $display("TEST\n %08h %08h %08h %b\n",l1_query_id,l1_req_paddr,l1_req_data,l1_req_rw);
                 // Accept input from L1
                 stage1.id <= l1_query_id;
                 stage1.tag <= l1_req_paddr[WORD_ADDR_SIZE-1:$clog2(NUM_SETS)];
@@ -427,7 +427,7 @@ task print_cache;
             end
 
             if (unsent_mshrs[query_mshr]&& can_query) begin
-                $display("Querying SDRAM for MSHR read %08h\n",query_mshr);
+                // $display("Querying SDRAM for MSHR read %08h\n",query_mshr);
                 // Query read from a MSHR to SDRAM (make query using query_mshr info)
                 sdram_req_rw <= 1'b0;
                 sdram_req_addr <= {{(32-PADDR_W){1'b0}}, mshrs[query_mshr].tag,mshrs[query_mshr].set_index, {OFFSET_SIZE{1'b0}}};
@@ -436,7 +436,7 @@ task print_cache;
             end
 
             if (mshr_to_cache) begin
-                $display("Updating cache after mshr cleanup\n");
+                // $display("Updating cache after mshr cleanup\n");
                 cache[mshrs[current_drain_mshr].set_index].set[mshrs[current_drain_mshr].cache_line_index].data<= mshr_to_cache_data;
                 cache[mshrs[current_drain_mshr].set_index].set[mshrs[current_drain_mshr].cache_line_index].valid<= 1'b1;
                 cache[mshrs[current_drain_mshr].set_index].set[mshrs[current_drain_mshr].cache_line_index].in_mshr<= 1'b0;

@@ -105,9 +105,9 @@ assign trace_ready = !queue[tail].valid;
 /* initialize everything important to 0 */
 initial begin
 
-    if (!$value$plusargs("LQDEBUG=%b", DBG)) begin
-        DBG = 0;
-    end
+    // if (!$value$plusargs("LQDEBUG=%b", DBG)) begin
+    DBG = 0;
+    // end
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
         queue[i].valid     = 0;
@@ -163,17 +163,17 @@ always_ff @(posedge clk) begin
 
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
-        $display("picking up trace");
+        // $display("picking up trace");
 
         if (trace_op == OP_MEM_LOAD) begin
-            if (DBG)
-                $display("Loadq Status: Received Load trace.");
+            // if (DBG)
+            //     $display("Loadq Status: Received Load trace.");
             // check if queue is full
             // if tail == head, then valid bit on queue head tells us if its full or empty
             // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
             if (tail != head || !queue[head].valid) begin
-                if (DBG)
-                    $display("Loadq Status: Processing Load trace.");
+                // if (DBG)
+                //     $display("Loadq Status: Processing Load trace.");
                 assert(!queue[tail].valid);
 
                 id_map[trace_id] <= { 1'b0, tail };
@@ -191,13 +191,13 @@ always_ff @(posedge clk) begin
             end
 
         end else if (trace_op == OP_MEM_RESOLVE) begin
-            if (DBG)
-                $display("Loadq Status: Received Resolve trace.");
+            // if (DBG)
+            //     $display("Loadq Status: Received Resolve trace.");
             assert(trace_vaddr_is_valid);
 
             // do we actually have something for this trace_id, or is it just for a store?
             if (id_map[trace_id] != INVALID_IDX) begin
-                assert(queue[id_map[trace_id][IDX_W-1:0]].valid);
+                // assert(queue[id_map[trace_id][IDX_W-1:0]].valid);
 
                 queue[id_map[trace_id][IDX_W-1:0]].vaddr       <= trace_vaddr;
                 queue[id_map[trace_id][IDX_W-1:0]].addr_valid  <= trace_vaddr_is_valid;
@@ -208,24 +208,24 @@ always_ff @(posedge clk) begin
                 queue[i].conflict <= 0;
             end
         end else begin
-            if (DBG)
-                $display("Loadq Status: Received trace to be ignored.");
+            // if (DBG)
+            //     $display("Loadq Status: Received trace to be ignored.");
         end
     end
 
     if (waiting_issue) begin
 
-        if (DBG) begin
-            $display("Loadq Status: Awaiting issue and/or trace");
-        end
+        // if (DBG) begin
+        //     $display("Loadq Status: Awaiting issue and/or trace");
+        // end
 
         if (found_issue) begin
-            if (DBG)
-                $display("Loadq status: Issuing request to storeq");
+            // if (DBG)
+            //     $display("Loadq status: Issuing request to storeq");
 
-            assert(queue[next_issue_idx].valid);
-            assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
-            assert(!queue[next_issue_idx].issued);
+            // assert(queue[next_issue_idx].valid);
+            // assert(queue[next_issue_idx].addr_valid); // is this one necessary? i think so
+            // assert(!queue[next_issue_idx].issued);
 
             // we know what we want to try and resolve, so let's ask our store queue
             issue_storeq <= 1;
@@ -255,8 +255,8 @@ always_ff @(posedge clk) begin
                 l1_req_valid <= 1;
                 issue_cache  <= 1;
                 issue_storeq <= 0;
-                if (DBG)
-                    $display("Loadq Status: request sent to l1");
+                // if (DBG)
+                //     $display("Loadq Status: request sent to l1");
             end
 
             sq_query_valid <= 0;

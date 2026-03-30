@@ -88,9 +88,9 @@ initial begin
     @(negedge clk_in);
     reset = 0;
     @(negedge clk_in);
-    if (!$value$plusargs("TRACE_FILE=%s", filename)) begin
-        filename = "mem-traces-v2/traces/dgemm3_lsq88.bin";
-    end
+    // if (!$value$plusargs("TRACE_FILE=%s", filename)) begin
+    filename = "mem-traces-v2/traces/dgemm3_lsq88.bin";
+    // end
 
     fd = $fopen(filename, "rb");
     if (fd == 0) begin
