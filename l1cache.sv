@@ -410,7 +410,7 @@ module l1cache #(
     mshr_full_block = mshr_out_valid | mshr_should_stall;
     
     stage3_blocked = mshr_full_block | l2_full_block;
-    $display("MSHR Stall: %b, MSHR_V: %b, MSHR_REQ_V: %b, MSHR_REQ_ADDR: %x", mshr_should_stall, mshr_out_valid, mshr_l2_req_valid, mshr_l2_req_paddr);
+    // $display("MSHR Stall: %b, MSHR_V: %b, MSHR_REQ_V: %b, MSHR_REQ_ADDR: %x", mshr_should_stall, mshr_out_valid, mshr_l2_req_valid, mshr_l2_req_paddr);
     if(mshr_out_valid) begin
       stage3_blocked = 1'b1;
       if(mshr_is_store_out) begin
@@ -446,17 +446,17 @@ module l1cache #(
       l2_req_valid = 1'b1;
       l2_req_paddr = mshr_l2_req_paddr;
       l2_query_id = mshr_l2_req_id;
-      $display("OUTPUTTING TO L2 THROUGH MSHR");
+      // $display("OUTPUTTING TO L2 THROUGH MSHR");
     end else if(stage3.valid & l2_ready_for_req) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
       l2_req_valid = 1'b1;
       l2_req_paddr = stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)];
       l2_query_id = stage3.instr_id;
-      $display("OUTPUTTING TO L2 THROUGH PIPE");
+      // $display("OUTPUTTING TO L2 THROUGH PIPE");
     end else begin
       // Presumably output invalid
-      if(stage3.valid)
-        $display("Miss in stage 3 but l2 full, move to mshr");
+      // if(stage3.valid)
+        // $display("Miss in stage 3 but l2 full, move to mshr");
     end
 
     data_valid = load_finished;
