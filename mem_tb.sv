@@ -46,24 +46,13 @@ mem_top #(
     .trace_valid(trace_valid),
     .trace_ready(trace_ready),
     .trace_data(trace_data),
-    /*
     .sdram_req_valid(sdram_req_valid),
     .sdram_req_ready(sdram_req_ready),
     .sdram_req_rw(sdram_req_rw),
     .sdram_req_addr(sdram_req_addr),
     .sdram_req_wdata(sdram_req_wdata),
     .sdram_resp_valid(sdram_resp_valid),
-    .sdram_resp_rdata(sdram_resp_rdata),
-    */
-    .avm_m0_read(avm_m0_read),
-    .avm_m0_write(avm_m0_write),
-    .avm_m0_writedata(avm_m0_writedata),
-    .avm_m0_address(avm_m0_address),
-    .avm_m0_readdata(avm_m0_readdata),
-    .avm_m0_readdatavalid(avm_m0_readdatavalid),
-    .avm_m0_byteenable(avm_m0_byteenable),
-    .avm_m0_waitrequest(avm_m0_waitrequest),
-    .avm_m0_burstcount(avm_m0_burstcount)
+    .sdram_resp_rdata(sdram_resp_rdata)
 );
 
 typedef enum logic [2:0] {
