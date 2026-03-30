@@ -102,6 +102,25 @@ logic [20:0] count;
 
 assign trace_ready = !queue[tail].valid;
 
+task print_queue;
+    if (DBG) begin    
+        $display("\nhead: %d, tail: %d", head, tail);
+        for (int i = 0; i < LQ_SIZE; ++i) begin
+            $display("entry %d: valid %d id %d addr 0x%012x addrvalid %d rdy %d issd %d conf %d cmpl %d",
+                    i,
+                    queue[i].valid,
+                    queue[i].id,
+                    queue[i].vaddr,
+                    queue[i].addr_valid,
+                    ready[i],
+                    queue[i].issued,
+                    queue[i].conflict,
+                    queue[i].completed);
+        end
+        $display();
+    end
+endtask
+
 /* initialize everything important to 0 */
 initial begin
 
@@ -163,7 +182,6 @@ always_ff @(posedge clk) begin
 
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
-        $display("picking up trace");
 
         if (trace_op == OP_MEM_LOAD) begin
             if (DBG)
@@ -171,9 +189,11 @@ always_ff @(posedge clk) begin
             // check if queue is full
             // if tail == head, then valid bit on queue head tells us if its full or empty
             // it SHOULD BE that the only case that the queue head isn't valid is when it's empty
+
             if (tail != head || !queue[head].valid) begin
                 if (DBG)
-                    $display("Loadq Status: Processing Load trace.");
+                    $display("Loadq Status: Processing Load trace. %d", trace_id);
+
                 assert(!queue[tail].valid);
 
                 id_map[trace_id] <= { 1'b0, tail };
@@ -213,6 +233,8 @@ always_ff @(posedge clk) begin
         end
     end
 
+    print_queue();
+
     if (waiting_issue) begin
 
         if (DBG) begin
@@ -245,8 +267,11 @@ always_ff @(posedge clk) begin
     if (issue_storeq) begin
         if (sq_miss || sq_had_miss) begin
             sq_had_miss <= 1;
+            if (DBG)
+                $display("waiting to issue cache on id %d", queue[issue_idx].id);
             // no data to forward, so query the cache
             if (l1_req_ready) begin
+
                 // don't care anymore
                 sq_had_miss <= 0;
 
@@ -259,7 +284,6 @@ always_ff @(posedge clk) begin
                     $display("Loadq Status: request sent to l1");
             end
 
-            sq_query_valid <= 0;
 
         end else if (sq_forward_valid) begin
             queue[issue_idx].completed <= 1;
@@ -277,6 +301,8 @@ always_ff @(posedge clk) begin
 
         end
 
+        sq_query_valid <= 0;
+
     end
 
     if (issue_cache) begin
@@ -293,7 +319,12 @@ always_ff @(posedge clk) begin
         end
 
         if (l1_resp_valid) begin
-            assert(queue[issue_idx].id == l1_resp_id)
+
+            if (DBG)
+                $display("Loadq Status: Received response from L1. queue id %d l1_id %d issue_idx %d id_map idx %d", queue[issue_idx].id, l1_resp_id, issue_idx, id_map[l1_resp_id]);
+
+            assert(queue[issue_idx].id == l1_resp_id);
+
 
             queue[issue_idx].completed <= 1;
             queue[issue_idx].data <= l1_resp_data;
@@ -310,6 +341,7 @@ always_ff @(posedge clk) begin
 
         if (DBG)
             $display("Loadq Status: Dequeueing head");
+
         // invalidate the entry for this guy
         id_map[queue[head].id] <= INVALID_IDX;
 
@@ -322,6 +354,9 @@ always_ff @(posedge clk) begin
         // (the output stuff) and have an input bit for load_received
         // whenever load received, do everything below!
         queue[head].valid <= 0; 
+        queue[head].id <= 0;
+        queue[head].vaddr <= '0;
+        queue[head].addr_valid <= 0;
         queue[head].issued <= 0;
         queue[head].conflict <= 0;
         queue[head].completed <= 0;
@@ -344,23 +379,7 @@ always_comb begin
         ready[i] = queue[i].valid && queue[i].addr_valid 
                 && !queue[i].issued && !queue[i].conflict;
     end
-
-
-    if (DBG && count % 10 == 0) begin    
-        $display("head: %d, tail: %d", head, tail);
-        for (int i = 0; i < LQ_SIZE; ++i) begin
-            $display("entry %d: valid %d addr 0x%012x addrvalid %d rdy %d issd %d conf %d cmpl %d",
-                    i,
-                    queue[i].valid,
-                    queue[i].vaddr,
-                    queue[i].addr_valid,
-                    ready[i],
-                    queue[i].issued,
-                    queue[i].conflict,
-                    queue[i].completed);
-        end
-    end
-
+    
     found_issue = 0;
     next_issue_idx = '0;
 
