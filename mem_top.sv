@@ -333,13 +333,10 @@ module mem_top #(
         .l2_req_paddr(l2_req_paddr),
         .l2_req_data(l2_req_data),
         .l2_query_id(l2_query_id),
-        .l2_evict_data(l2_evict_data), // TODO unused
-        .l2_evict_valid(l2_evict_valid), // TODO unused
         .l2_ready_for_req(l2_ready_for_req),
         .l2_resp_valid(l2_resp_valid),
         .l2_resp_data(l2_resp_data),
         .l2_paddr(l2_paddr),
-        .l2_resp_id(l2_resp_id),
         .tlb_paddr_in(tlb_resp_paddr),
         .tlb_paddr_ready(tlb_resp_valid),
         .tlb_vaddr_out(tlb_lookup_vaddr),
