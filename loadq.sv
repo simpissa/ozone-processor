@@ -98,15 +98,16 @@ logic [IDX_W-1:0] next_issue_idx;
 logic [IDX_W-1:0] issue_idx;
 
 logic DBG;
+logic [20:0] count;
 
 assign trace_ready = !queue[tail].valid;
 
 /* initialize everything important to 0 */
 initial begin
 
-    // if (!$value$plusargs("DEBUG=%b", DBG)) begin
-    DBG = 0;
-    // end
+    if (!$value$plusargs("LQDEBUG=%b", DBG)) begin
+        DBG = 0;
+    end
 
     for (int i = 0; i < LQ_SIZE; ++i) begin
         queue[i].valid     = 0;
@@ -125,10 +126,13 @@ initial begin
     l1_req_valid = 0;
     load_complete_valid = 0;
     sq_had_miss = 0;
+    count = 0;
 
 end
 
 always_ff @(posedge clk) begin
+
+    count <= count + 1;
 
     // set our queue and ptrs back to 0
     if (reset) begin
@@ -159,6 +163,7 @@ always_ff @(posedge clk) begin
 
     // new trace coming in! pick it up if necessary
     if (trace_valid) begin
+        $display("picking up trace");
 
         if (trace_op == OP_MEM_LOAD) begin
             if (DBG)
@@ -340,10 +345,11 @@ always_comb begin
                 && !queue[i].issued && !queue[i].conflict;
     end
 
-    if (DBG) begin    
+
+    if (DBG && count % 10 == 0) begin    
         $display("head: %d, tail: %d", head, tail);
         for (int i = 0; i < LQ_SIZE; ++i) begin
-            $display("entry %d: valid %d addr %d addrvalid %d rdy %d issd %d conf %d cmpl %d",
+            $display("entry %d: valid %d addr 0x%012x addrvalid %d rdy %d issd %d conf %d cmpl %d",
                     i,
                     queue[i].valid,
                     queue[i].vaddr,

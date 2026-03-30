@@ -54,6 +54,11 @@ module store_queue #(
         end
     endfunction
 
+    always @(valid_out) begin
+        if (valid_out) 
+            $display("Storeq status: querying l1. at vaddr 0x%012h", write_vaddr);
+    end
+
     typedef struct packed {
         logic [3:0] trace_id;
         logic [47:0] trace_vaddr;
@@ -70,6 +75,14 @@ module store_queue #(
 
     logic receive_new_data;
     logic write_new_data;    
+
+    logic DBG;
+
+    initial begin
+        if (!$value$plusargs("SQDEBUG=%b", DBG)) begin
+            DBG = 0;
+        end
+    end
 
     assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
     assign receive_new_data = ready_out&valid_trace;

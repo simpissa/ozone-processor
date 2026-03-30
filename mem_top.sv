@@ -131,7 +131,9 @@ module mem_top #(
     assign trace_tlb_paddr = trace_data_r[85:56];
 
     // check if the downstream module for the latched op is ready
-    always_comb begin
+    always @(trace_op, lq_trace_ready, sq_ready_out, tlb_fill_ready) begin
+
+        //$display("setting downstream with lq %b sq %b tlb %b and op %d", lq_trace_ready, sq_ready_out, tlb_fill_ready, trace_op);
         case (trace_op)
             OP_MEM_LOAD: downstream_ready = lq_trace_ready;
             OP_MEM_STORE: downstream_ready = sq_ready_out;
@@ -168,6 +170,7 @@ module mem_top #(
         tlb_fill_valid = 1'b0;
 
         if (trace_fire) begin
+
             case (trace_op)
                 OP_MEM_LOAD: lq_trace_valid = 1'b1;
                 OP_MEM_STORE: sq_trace_valid = 1'b1;
