@@ -39,6 +39,21 @@ module store_queue #(
     input logic ready_in,
     output logic valid_out
 );
+    function automatic int clog2_runtime(input logic [SQ_SIZE:0] value);
+        integer result;
+        logic [SQ_SIZE:0] v;
+        begin
+            if (value == '0) return 0;  // edge case: log2(0) undefined, return 0
+            result = 0;
+            v = value - 1;             // subtract 1 so exact powers of 2 round down
+            while (v > 0) begin
+                v = v >> 1;
+                result++;
+            end
+            return result;
+        end
+    endfunction
+
     typedef struct packed {
         logic [3:0] trace_id;
         logic [47:0] trace_vaddr;
@@ -78,7 +93,7 @@ module store_queue #(
                     if(tag_matching != {SQ_SIZE{1'b0}}) begin
                         logic [$clog2(SQ_SIZE)-1:0] addr;
                         int result;
-                        result = $clog2({1'b0,tag_matching}+1)-1;
+                        result = clog2_runtime({1'b0,tag_matching}+1)-1;
                         addr=result[$clog2(SQ_SIZE)-1:0];
                         SQ[addr].trace_vaddr<=trace_vaddr;
                         SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
@@ -134,12 +149,12 @@ module store_queue #(
         found = current_store_mask!={SQ_SIZE{1'b0}};
         if(found) begin
             if(sq_head<sq_tail) begin
-                result=$clog2({1'b0,current_store_mask}+1)-1;
+                result=clog2_runtime({1'b0,current_store_mask}+1)-1;
             end else begin
                 if ((current_store_mask&tailmask)!={SQ_SIZE{1'b0}}) begin
-                    result=$clog2({1'b0,current_store_mask&tailmask}+1)-1;
+                    result=clog2_runtime({1'b0,current_store_mask&tailmask}+1)-1;
                 end else begin
-                    result=$clog2({1'b0,current_store_mask}+1)-1;
+                    result=clog2_runtime({1'b0,current_store_mask}+1)-1;
                 end
             end
             value_index=result[$clog2(SQ_SIZE)-1:0];
