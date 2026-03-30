@@ -51,31 +51,39 @@ module l2cache #(
     localparam int TAG_SIZE = WORD_ADDR_SIZE-$clog2(NUM_SETS);
 
     // clog2 functions for runtime
-    function automatic int clog2_NUM_WAYS(input logic [NUM_WAYS-1:0] value);
+    function automatic int lsb_NUM_WAYS(input logic [NUM_WAYS-1:0] value);
         integer result;
         logic [NUM_WAYS-1:0] v;
+        logic found;
         begin
-            if (value == '0) return 0;  // edge case: log2(0) undefined, return 0
             result = 0;
-            v = value - 1;             // subtract 1 so exact powers of 2 round down
-            while (v > 0) begin
-                v = v >> 1;
-                result++;
+            v = value;
+            found = 1'b0;
+            for (int i = 0; i<NUM_WAYS;i++) begin
+                if (!found && v[0]) begin
+                    result = i;
+                    found = 1'b1;
+                end
+                v = v>>1;
             end
             return result;
         end
     endfunction
 
-    function automatic int clog2_MSHR_QUEUE_SIZE(input logic [MSHR_QUEUE_SIZE-1:0] value);
+    function automatic int lsb_MSHR_QUEUE_SIZE(input logic [MSHR_QUEUE_SIZE-1:0] value);
         integer result;
         logic [MSHR_QUEUE_SIZE-1:0] v;
+        logic found;
         begin
-            if (value == '0) return 0;  // edge case: log2(0) undefined, return 0
             result = 0;
-            v = value - 1;             // subtract 1 so exact powers of 2 round down
-            while (v > 0) begin
-                v = v >> 1;
-                result++;
+            v = value;
+            found = 1'b0;
+            for (int i = 0; i<MSHR_QUEUE_SIZE;i++) begin
+                if (!found && v[0]) begin
+                    result = i;
+                    found = 1'b1;
+                end
+                v = v>>1;
             end
             return result;
         end
@@ -105,7 +113,7 @@ module l2cache #(
             for(j=0;j<NUM_WAYS;j++) begin: init_zero
                 assign zero[i][j] = (cache[i].grid[j] == '0);
             end
-            assign oldest[i] = $clog2(NUM_WAYS)'(clog2_NUM_WAYS(zero[i]&(~zero[i]+1)));
+            assign oldest[i] = $clog2(NUM_WAYS)'(lsb_NUM_WAYS(zero[i]));
         end
     endgenerate
 task print_cache;
@@ -247,7 +255,7 @@ task print_cache;
             if(|drain_mhsrs) begin
                 // Send read operation to stage 5
                 logic [$clog2(MSHR_QUEUE_SIZE)-1:0] read_pos;
-                read_pos = $clog2(MSHR_QUEUE_SIZE)'(clog2_MSHR_QUEUE_SIZE(mshrs[current_drain_mshr].reads&(~mshrs[current_drain_mshr].reads+1)));
+                read_pos = $clog2(MSHR_QUEUE_SIZE)'(lsb_MSHR_QUEUE_SIZE(mshrs[current_drain_mshr].reads));
                 sent_stage_5 = 1'b1;
                 l1_output_id <= mshrs[current_drain_mshr].queue[read_pos].id;
                 l1_output_paddr <= {mshrs[current_drain_mshr].tag,mshrs[current_drain_mshr].set_index};
@@ -396,7 +404,7 @@ task print_cache;
                     logic found_tag_match;
                     found_tag_match = |tag_comparison;
                     cache_hit <= forwarded_valid||found_tag_match;
-                    cache_line_index <= forwarded_valid?forwarded_cache_line_index:(found_tag_match?$clog2(NUM_WAYS)'(clog2_NUM_WAYS(tag_comparison)):'0);
+                    cache_line_index <= forwarded_valid?forwarded_cache_line_index:$clog2(NUM_WAYS)'(lsb_NUM_WAYS(tag_comparison));
                 end
 
                 // Stage 2: get correct cache set
