@@ -145,7 +145,7 @@ module l1cache #(
 
   // TODO SET ALL TO DEFAULT
   initial begin 
-    if (!$value$plusargs("DEBUG=%b", DBG)) begin
+    if (!$value$plusargs("L1DEBUG=%b", DBG)) begin
         DBG = 0;
     end
 

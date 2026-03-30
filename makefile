@@ -35,14 +35,14 @@ top: tlb.sv l1cache.sv l2.sv storeq.sv loadq.sv mem_top.sv
 	verilator --assert --binary --top-module mem_top \
 	mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
 
-test-top: mem_tb.sv mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
+tb: mem_tb.sv mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
 	verilator --assert --binary --top-module mem_tb \
 	mem_tb.sv mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
+
+test-top: tb
 	obj_dir/Vmem_tb +TRACE_FILE=mem-traces-v2/traces/dgemm3_lsq88.bin
 
-debug-top: mem_tb.sv mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
-	verilator --assert --binary --top-module mem_tb \
-	mem_tb.sv mem_top.sv loadq.sv storeq.sv l2.sv l1cache.sv tlb.sv
+debug-top: tb
 	obj_dir/Vmem_tb +TRACE_FILE=mem-traces-v2/traces/dgemm3_lsq88.bin \
 	+DEBUG=1
 

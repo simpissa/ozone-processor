@@ -22,15 +22,7 @@ logic [511:0] sdram_req_wdata;
 logic sdram_resp_valid;
 logic [511:0] sdram_resp_rdata;
 
-logic avm_m0_read;
-logic avm_m0_write;
-logic [255:0] avm_m0_writedata;
-logic [31:0] avm_m0_address;
-logic [255:0] avm_m0_readdata;
-logic avm_m0_readdatavalid;
-logic [31:0] avm_m0_byteenable;
-logic avm_m0_waitrequest;
-logic [10:0] avm_m0_burstcount;
+logic [511:0] sdram [0:1<<24];
 
 mem_top #(
     .PAGE_OFF_W(12),
@@ -89,8 +81,15 @@ int fd;
 int count = 0;
 
 initial begin
+    int offset;
+    offset = 0;
+
+    reset = 1;
+    @(negedge clk_in);
+    reset = 0;
+    @(negedge clk_in);
     if (!$value$plusargs("TRACE_FILE=%s", filename)) begin
-        filename = "dgemm_tlb_trace.bin";
+        filename = "mem-traces-v2/traces/dgemm3_lsq88.bin";
     end
 
     fd = $fopen(filename, "rb");
@@ -104,6 +103,8 @@ initial begin
     $display("%-10s | %-3s | %-14s | %-2s | %-18s | %-3s | %-10s",
              "Op", "ID", "Vaddr", "VV", "Value", "VvV", "TLB Paddr");
     $display("------------------------------------------------------------------------------------------------------------------");
+
+    sdram_req_ready = 1;
 
     while ($fread(buffer, fd) == 16) begin
 
@@ -140,16 +141,34 @@ initial begin
         trace_data = trace_line;
         #1 // let propogate
 
-        while (!trace_ready) begin
-            #1
-            trace_valid = 0;
-        end
         trace_valid = 1;
+        while (!trace_ready) begin
+            #1;
+        end
+
+            
+        @(negedge clk_in);
+        @(negedge clk_in);
         @(negedge clk_in);
         trace_valid = 0;
 
+        $display("sdram vals: valid %b ready %b rw %b addr 0x%08x ", sdram_req_valid, sdram_req_ready, sdram_req_rw, sdram_req_addr);
+        sdram_resp_valid = 0;
+        
+        if (sdram_req_valid) begin
+            sdram_resp_valid = 1;
+            offset = (sdram_req_addr - 32'h20000000) / 64;
+//            $display("offset is %d", offset);
+            if (sdram_req_rw == 0) begin
+                sdram_resp_rdata = sdram[offset];
+
+            end else begin
+                sdram[offset] = sdram_req_wdata;
+            end
+        end
+
         count++;
-        if (count >= 100) begin
+        if (count >= 15) begin
             $display("... (Trace continues, truncated at 100 lines) ... ");
             break;
         end
