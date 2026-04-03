@@ -228,6 +228,7 @@ module l2cache #(
             logic clearing_same_mshr;
             logic stall;    // Indicates whether or not to stall
             logic [$clog2(NUM_MSHRS)-1:0] query_mshr;    // MSHR to query SDRAM on next
+            logic [$clog2(NUM_WAYS)-1:0] target_line;
             query_mshr = head_mshr;
 
             // Stage 5: output
@@ -286,7 +287,7 @@ module l2cache #(
             next_pending_evict = pending_evict;
             // If SDRAM accepts input, can move onto requesting next input
             if (sdram_req_valid && sdram_req_ready) begin
-                // $display("test: %b %08h %08h\n",sdram_req_rw,sdram_req_addr,sdram_req_wdata);
+                // $display("sent to sdram: %b %08h %08h\n",sdram_req_rw,sdram_req_addr,sdram_req_wdata);
                 if(pending_evict) begin
                     next_pending_evict = 1'b0;  // SDRAM processing writing eviction
                 end else begin
@@ -309,14 +310,11 @@ module l2cache #(
             stall=stage4.valid&&(!cache_hit && available_mshrs == '0||!stage4.write&&sent_stage_5&&(cache_hit&&cache[stage4.set_index].set[cache_line_index].valid||clearing_same_mshr)||eviction&&next_pending_evict);
            
 
+            target_line = cache_hit ? cache_line_index:oldest[stage4.set_index];
             if(!stall) begin
-                logic [$clog2(NUM_WAYS)-1:0] target_line;
                 // $display("CYCLE %b %b %b %b\n",stage1.valid,stage2.valid,stage3.valid,stage4.valid);
-                target_line = cache_hit ? cache_line_index:oldest[stage4.set_index]; // use for stage 3 forwarding
-
                 // Stage 4: handling hit/miss and modifying cache
                 if (stage4.valid) begin
-
                     // Update LRU grid
                     for(int l=0;l<NUM_WAYS;l++) begin
                         if($clog2(NUM_WAYS)'(l)==target_line) begin
@@ -386,7 +384,7 @@ module l2cache #(
 
                         if (eviction) begin
                             // Send eviction write to SDRAM
-                            // $display("PENDING: %b\n",pending_evict);
+                            // $display("PENDING evict: %b\n",pending_evict);
                             next_pending_evict = 1'b1;
                             can_query = 1'b0;
                             sdram_req_rw <= 1'b1;
@@ -395,7 +393,8 @@ module l2cache #(
                         end
                     end
                 end
-
+            end
+            if (!stall || !stage4.valid) begin
                 // Stage 3: compare tags, see if hit/miss
                 stage4 <= stage3;
                 if(stage4.valid && stage3.tag == stage4.tag && stage3.set_index == stage4.set_index) begin
@@ -407,7 +406,8 @@ module l2cache #(
                     cache_hit <= forwarded_valid||found_tag_match;
                     cache_line_index <= forwarded_valid?forwarded_cache_line_index:$clog2(NUM_WAYS)'(lsb_NUM_WAYS(tag_comparison));
                 end
-
+            end
+            if (!stall || !stage3.valid) begin
                 // Stage 2: get correct cache set
                 stage3 <= stage2;
                 relevant_set <= cache[stage2.set_index];
@@ -417,7 +417,8 @@ module l2cache #(
                 end else begin
                     forwarded_valid<=1'b0;
                 end
-
+            end
+            if (!stall || !stage2.valid) begin
                 // Sending to stage 2
                 stage2 <= stage1;
             end
@@ -431,7 +432,7 @@ module l2cache #(
                 stage1.data <= l1_req_data;
                 stage1.valid <= 1'b1;
                 stage1.set_index <= l1_req_paddr[$clog2(NUM_SETS)-1:0];
-            end else if (!stall) begin
+            end else if (!stall || !stage2.valid) begin
                 stage1.valid <= 1'b0;
             end
 
@@ -453,7 +454,7 @@ module l2cache #(
             // if(l1_resp_valid) begin
             //     $display("SENT TO L1 %b %08h %08h\n",stall,l1_resp_data,l1_output_paddr);
             // end
-            l1_ready_for_input <= !stall;
+            l1_ready_for_input <= !stall || !stage1.valid;
             l1_resp_valid<=sent_stage_5;
             pending_evict <= next_pending_evict;
             sdram_req_valid <= !can_query;

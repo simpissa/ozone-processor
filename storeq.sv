@@ -55,11 +55,6 @@ module store_queue #(
         end
     endfunction
 
-    always @(valid_out) begin
-        if (valid_out) 
-            $display("Storeq status: querying l1. at vaddr 0x%012h", write_vaddr);
-    end
-
     typedef struct packed {
         logic [3:0] trace_id;
         logic [47:0] trace_vaddr;
@@ -98,6 +93,9 @@ module store_queue #(
 
     logic [SQ_SIZE-1:0] tailmask;
     always_ff @(posedge clk_in) begin
+        // if (write_new_data) begin
+        //     $display("Storeq status: querying l1. at vaddr 0x%012h %08b %08b %b %b\n", write_vaddr,curr_entries,lq_head_age,lq_head_valid,curr_unresolved[sq_head]);
+        // end
         if(rst) begin
             sq_head<=0;
             sq_tail<=0;
@@ -150,9 +148,9 @@ module store_queue #(
     genvar i;
     generate
     for (i=0;i<SQ_SIZE;i++) begin: match_addresses
-        assign match_result[i] = curr_entries[i]&(load_age-SQ[i].age<16)&(SQ[i].trace_vaddr==search_addr);
-        assign curr_unresolved[i] = curr_entries[i]&(!SQ[i].trace_vaddr_is_valid|!SQ[i].trace_value_is_valid);
-        assign tag_matching[i] = curr_entries[i]&(SQ[i].trace_id==trace_id);
+        assign match_result[i] = curr_entries[i]&&(load_age-SQ[i].age<16)&&(SQ[i].trace_vaddr==search_addr);
+        assign curr_unresolved[i] = curr_entries[i]&&(!SQ[i].trace_vaddr_is_valid||!SQ[i].trace_value_is_valid);
+        assign tag_matching[i] = curr_entries[i]&&(SQ[i].trace_id==trace_id);
     end
     endgenerate
 
