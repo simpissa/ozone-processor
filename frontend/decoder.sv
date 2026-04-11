@@ -47,7 +47,7 @@ module decoder (
     input  logic        valid_in,
     output logic        ready_out,
 
-    // next stage (rob or rat?) i/o
+    // next stage (rename) i/o
     output logic        valid_out,
     input logic         ready_in,
 
@@ -63,6 +63,8 @@ module decoder (
     output logic [63:0] imm, // immediate 
     output logic        imm_valid,
     output logic        src1_is_pc, // use pc as source register (for branching ops)
+    output logic        reads_flags, // reads NZCV
+    output logic        sets_flags, // sets NZCV
 
     // Multi-uop control
     output logic        first_uop, // allocate rob entry on this
@@ -118,16 +120,15 @@ module decoder (
     assign bcond_offset = {{43{simm19[18]}}, simm19, 2'b00};
     assign b_offset     = {{36{simm26[25]}}, simm26, 2'b00};
 
+
     // special registers
     localparam logic [15:0] SYSREG_SP_EL0    = {2'b11, 3'b000, 4'b0100, 4'b0001, 3'b000};
     localparam logic [15:0] SYSREG_ELR_EL1   = {2'b11, 3'b000, 4'b0100, 4'b0000, 3'b001};
     localparam logic [15:0] SYSREG_SPSR_EL1  = {2'b11, 3'b000, 4'b0100, 4'b0000, 3'b000};
     localparam logic [15:0] SYSREG_VBAR_EL1  = {2'b11, 3'b000, 4'b1100, 4'b0000, 3'b000};
     localparam logic [15:0] SYSREG_ACTLR_EL1 = {2'b11, 3'b000, 4'b0001, 4'b0000, 3'b001};
-    
     always_comb begin
         decoded_spr_id = SPR_INVALID;
-
         case (imm16)
             SYSREG_SP_EL0:    decoded_spr_id = SPR_SP_EL0;
             SYSREG_ELR_EL1:   decoded_spr_id = SPR_ELR_EL1;
@@ -175,6 +176,8 @@ module decoder (
         imm            = 64'd0;
         imm_valid      = 1'b0;
         src1_is_pc     = 1'b0;
+        reads_flags    = 1'b0;
+        sets_flags     = 1'b0;
         first_uop      = (uop_counter == 0);
         last_uop       = 1'b1; // default to 1, set to 0 if not
         is_sequential  = 1'b0;
@@ -220,6 +223,7 @@ module decoder (
                     0: begin // COND_CHECK
                         fu_select = ; // TODO: which fu does COND_CHECK go to?
                         fu_op     = OP_COND_CHECK;
+                        reads_flags = 1'b1;
                         last_uop  = 1'b0;
                     end
 
@@ -263,7 +267,7 @@ module decoder (
             I_RET: begin
                 is_branch = 1'b1;
                 fu_select = FU_LOGIC;
-                fu_op     = ; // TODO: which op is OR w/ XZR?
+                fu_op     = OP_MOV;
                 rs1       = Rn_field;
                 rs1_valid = 1'b1;
             end
