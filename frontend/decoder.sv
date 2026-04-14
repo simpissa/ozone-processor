@@ -42,7 +42,7 @@ module decoder (
         if (rst || flush)
             uop_counter <= 0;
         else if (valid_out && ready_in) begin
-            if (last_uop)
+            if (uop.last_uop)
                 uop_counter <= 0;
             else
                 uop_counter <= uop_counter + 1;
