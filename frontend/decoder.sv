@@ -57,6 +57,10 @@ module decoder (
     // TODO: add more if uop needs it
 );
 
+    // Backpressure fetch: only accept a new instruction when rename can
+    // consume the current uop AND this is the last uop of the instruction.
+    assign ready_out = ready_in && last_uop;
+
     logic [1:0] uop_counter;
 
     // which uop to output for the current instruction, since decoding is combinational
@@ -224,7 +228,6 @@ module decoder (
                         imm           = bcond_offset;
                         imm_valid     = 1'b1;
                         src1_is_pc    = 1'b1;
-                        is_sequential = 1'b0;
                     end
                 endcase
             end
@@ -250,7 +253,6 @@ module decoder (
                         imm           = b_offset;
                         imm_valid     = 1'b1;
                         src1_is_pc    = 1'b1;
-                        is_sequential = 1'b0;
                     end
                 endcase
             end
