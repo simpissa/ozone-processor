@@ -30,4 +30,29 @@ package frontend_types;
         SPR_INVALID
     } spr_t;
 
+    typedef struct packed {
+        fu_t          fu_select;
+        fu_op_t       fu_op;
+        logic [4:0]   rd;
+        logic         r_dest_valid;
+        logic [4:0]   rs1;
+        logic         rs1_valid;
+        logic [4:0]   rs2;
+        logic         rs2_valid;
+        logic [63:0]  imm;
+        logic         imm_valid;
+        logic         src1_is_pc;
+        logic         reads_flags;
+        logic         sets_flags;
+        logic         first_uop;
+        logic         last_uop;
+        logic         is_sequential;
+        logic         is_branch;
+        logic         is_eret;
+        logic         is_privileged;
+        logic         is_svc;
+        logic [3:0]   cond;
+        spr_t         spr_id;
+    } uop_t;
+
 endpackage

@@ -28,38 +28,12 @@ module decoder (
     input logic         ready_in,
 
     // Micro-op descriptor, one per cycle
-    output fu_t         fu_select, 
-    output fu_op_t      fu_op,
-    output logic [4:0]  rd, // destination register
-    output logic        r_dest_valid,
-    output logic [4:0]  rs1, // source register 1
-    output logic        rs1_valid,
-    output logic [4:0]  rs2, // source register 2
-    output logic        rs2_valid,
-    output logic [63:0] imm, // immediate 
-    output logic        imm_valid,
-    output logic        src1_is_pc, // use pc as source register (for branching ops)
-    output logic        reads_flags, // reads NZCV
-    output logic        sets_flags, // sets NZCV
-
-    // Multi-uop control
-    output logic        first_uop, // allocate rob entry on this
-    output logic        last_uop, 
-    output logic        is_sequential, // does the current uop depend on a previous uop
-
-    // Extra data
-    output logic        is_branch,
-    output logic        is_eret,
-    output logic        is_privileged,
-    output logic        is_svc,
-    output logic [3:0]  cond,
-    output spr_t        spr_id // special purpose register id
-    // TODO: add more if uop needs it
+    output uop_t        uop
 );
 
     // Backpressure fetch: only accept a new instruction when rename can
     // consume the current uop AND this is the last uop of the instruction.
-    assign ready_out = ready_in && last_uop;
+    assign ready_out = ready_in && uop.last_uop;
 
     logic [1:0] uop_counter;
 
@@ -159,29 +133,29 @@ module decoder (
     // set outputs
     always_comb begin
         // set defaults
-        valid_out      = valid_in;
-        fu_select      = FU_NONE;
-        fu_op          = OP_NOP;
-        rd             = 5'd31;
-        r_dest_valid   = 1'b0;
-        rs1            = 5'd31;
-        rs1_valid      = 1'b0;
-        rs2            = 5'd31;
-        rs2_valid      = 1'b0;
-        imm            = 64'd0;
-        imm_valid      = 1'b0;
-        src1_is_pc     = 1'b0;
-        reads_flags    = 1'b0;
-        sets_flags     = 1'b0;
-        first_uop      = (uop_counter == 0);
-        last_uop       = 1'b1; // default to 1, set to 0 if not
-        is_sequential  = 1'b0;
-        is_branch      = 1'b0;
-        is_eret        = 1'b0;
-        is_privileged  = 1'b0;
-        is_svc         = 1'b0;
-        cond           = 4'd0;
-        spr_id         = SPR_INVALID;
+        valid_out          = valid_in;
+        uop.fu_select      = FU_NONE;
+        uop.fu_op          = OP_NOP;
+        uop.rd             = 5'd31;
+        uop.r_dest_valid   = 1'b0;
+        uop.rs1            = 5'd31;
+        uop.rs1_valid      = 1'b0;
+        uop.rs2            = 5'd31;
+        uop.rs2_valid      = 1'b0;
+        uop.imm            = 64'd0;
+        uop.imm_valid      = 1'b0;
+        uop.src1_is_pc     = 1'b0;
+        uop.reads_flags    = 1'b0;
+        uop.sets_flags     = 1'b0;
+        uop.first_uop      = (uop_counter == 0);
+        uop.last_uop       = 1'b1; // default to 1, set to 0 if not
+        uop.is_sequential  = 1'b0;
+        uop.is_branch      = 1'b0;
+        uop.is_eret        = 1'b0;
+        uop.is_privileged  = 1'b0;
+        uop.is_svc         = 1'b0;
+        uop.cond           = 4'd0;
+        uop.spr_id         = SPR_INVALID;
 
 
         case (instr_id)
@@ -202,75 +176,75 @@ module decoder (
             // CONTROL TRANSFER
             // =============================================================
             I_B: begin
-                is_branch     = 1'b1;
-                fu_select     = FU_ALU;
-                fu_op         = OP_ADD;
-                imm           = b_offset;
-                imm_valid     = 1'b1;
-                src1_is_pc    = 1'b1;
+                uop.is_branch     = 1'b1;
+                uop.fu_select     = FU_ALU;
+                uop.fu_op         = OP_ADD;
+                uop.imm           = b_offset;
+                uop.imm_valid     = 1'b1;
+                uop.src1_is_pc    = 1'b1;
             end
 
             I_BCOND: begin
-                is_branch     = 1'b1;
-                cond          = cond_field;
+                uop.is_branch     = 1'b1;
+                uop.cond          = cond_field;
 
                 case (uop_counter)
                     0: begin // COND_CHECK
-                        fu_select = ; // TODO: which fu does COND_CHECK go to?
-                        fu_op     = OP_COND_CHECK;
-                        reads_flags = 1'b1;
-                        last_uop  = 1'b0;
+                        uop.fu_select   = ; // TODO: which fu does COND_CHECK go to?
+                        uop.fu_op       = OP_COND_CHECK;
+                        uop.reads_flags = 1'b1;
+                        uop.last_uop    = 1'b0;
                     end
 
                     1: begin // ADD
-                        fu_select     = FU_ALU;
-                        fu_op         = OP_ADD;
-                        imm           = bcond_offset;
-                        imm_valid     = 1'b1;
-                        src1_is_pc    = 1'b1;
+                        uop.fu_select     = FU_ALU;
+                        uop.fu_op         = OP_ADD;
+                        uop.imm           = bcond_offset;
+                        uop.imm_valid     = 1'b1;
+                        uop.src1_is_pc    = 1'b1;
                     end
                 endcase
             end
 
             I_BL: begin
                 // ARM page 60: Branch with Link branches to a PC-relative offset, setting the register X30 to PC+4
-                is_branch     = 1'b1;
+                uop.is_branch     = 1'b1;
                 case (uop_counter)
                     0: begin
-                        fu_select    = FU_ALU;
-                        fu_op        = OP_ADD;
-                        imm          = 64'd4;
-                        imm_valid    = 1'b1;
-                        src1_is_pc   = 1'b1;
-                        rd           = 5'd30;
-                        r_dest_valid = 1'b1;
-                        last_uop     = 1'b0;
+                        uop.fu_select    = FU_ALU;
+                        uop.fu_op        = OP_ADD;
+                        uop.imm          = 64'd4;
+                        uop.imm_valid    = 1'b1;
+                        uop.src1_is_pc   = 1'b1;
+                        uop.rd           = 5'd30;
+                        uop.r_dest_valid = 1'b1;
+                        uop.last_uop     = 1'b0;
                     end
 
                     1: begin
-                        fu_select     = FU_ALU;
-                        fu_op         = OP_ADD;
-                        imm           = b_offset;
-                        imm_valid     = 1'b1;
-                        src1_is_pc    = 1'b1;
+                        uop.fu_select     = FU_ALU;
+                        uop.fu_op         = OP_ADD;
+                        uop.imm           = b_offset;
+                        uop.imm_valid     = 1'b1;
+                        uop.src1_is_pc    = 1'b1;
                     end
                 endcase
             end
 
             I_RET: begin
-                is_branch = 1'b1;
-                fu_select = FU_LOGIC;
-                fu_op     = OP_MOV;
-                rs1       = Rn_field;
-                rs1_valid = 1'b1;
+                uop.is_branch = 1'b1;
+                uop.fu_select = FU_LOGIC;
+                uop.fu_op     = OP_MOV;
+                uop.rs1       = Rn_field;
+                uop.rs1_valid = 1'b1;
             end
 
             // =============================================================
             // MISC
             // =============================================================
             I_NOP: begin
-                fu_select = FU_NONE;
-                fu_op     = OP_NOP;
+                uop.fu_select = FU_NONE;
+                uop.fu_op     = OP_NOP;
             end
 
             I_ERET: begin
@@ -278,44 +252,44 @@ module decoder (
                 //             the PE restores PSTATE from the SPSR, and branches to the address held in the ELR.
 
                 // At commit time, switch privilege and restore
-                is_eret       = 1'b1;
-                is_privileged = 1'b1;
+                uop.is_eret       = 1'b1;
+                uop.is_privileged = 1'b1;
 
                 case (uop_counter)
                     0: begin
-                        fu_select = FU_LOGIC;
-                        fu_op     = OP_MOV;
-                        spr_id    = SPR_ELR_EL1;
-                        last_uop  = 1'b0;
+                        uop.fu_select = FU_LOGIC;
+                        uop.fu_op     = OP_MOV;
+                        uop.spr_id    = SPR_ELR_EL1;
+                        uop.last_uop  = 1'b0;
                     end
 
                     1: begin
-                        fu_select = FU_LOGIC;
-                        fu_op     = OP_MOV;
-                        spr_id    = SPR_SPSR_EL1;
+                        uop.fu_select = FU_LOGIC;
+                        uop.fu_op     = OP_MOV;
+                        uop.spr_id    = SPR_SPSR_EL1;
                     end
                 endcase
             end
 
             I_MRS: begin
                 // C6.2.194 Move System Register allows the PE to read an AArch64 System register into a general-purpose register.
-                is_privileged = 1'b1;
-                fu_select     = FU_LOGIC;
-                fu_op         = OP_MOV;
-                rd            = instr[4:0];
-                r_dest_valid  = 1'b1;
-                spr_id        = decoded_spr_id;
+                uop.is_privileged = 1'b1;
+                uop.fu_select     = FU_LOGIC;
+                uop.fu_op         = OP_MOV;
+                uop.rd            = instr[4:0];
+                uop.r_dest_valid  = 1'b1;
+                uop.spr_id        = decoded_spr_id;
             end
 
             I_MSR: begin
                 // C6.2.196 Move general-purpose register to System Register allows the PE to write an AArch64 System register from a general-purpose register.
                 // At commit time, check for terminate written to ACTLR_EL1 (extra credit: low power state here)
-                is_privileged = 1'b1;
-                fu_select     = FU_LOGIC;
-                fu_op         = OP_MOV;
-                rs1           = instr[4:0];
-                rs1_valid     = 1'b1;
-                spr_id        = decoded_spr_id;
+                uop.is_privileged = 1'b1;
+                uop.fu_select     = FU_LOGIC;
+                uop.fu_op         = OP_MOV;
+                uop.rs1           = instr[4:0];
+                uop.rs1_valid     = 1'b1;
+                uop.spr_id        = decoded_spr_id;
             end
 
             I_SVC: begin
@@ -333,11 +307,11 @@ module decoder (
                 4. Jump to the exception vector for synchronous exceptions (an offset from VBAR_EL1)
 
                 */
-                is_svc    = 1'b1;
-                imm       = {48'd0, imm16};
-                imm_valid = 1'b1;
-                fu_select = FU_NONE;
-                fu_op     = OP_NOP;
+                uop.is_svc    = 1'b1;
+                uop.imm       = {48'd0, imm16};
+                uop.imm_valid = 1'b1;
+                uop.fu_select = FU_NONE;
+                uop.fu_op     = OP_NOP;
             end
 
             // =============================================================
