@@ -8,6 +8,7 @@ typedef enum logic [5:0] {
     // TODO: add rest of instructions
     I_B, I_BCOND, I_BL, I_RET,
     I_NOP, I_ERET, I_MRS, I_MSR, I_SVC,
+    I_F_LDUR, I_F_STUR, I_FMOV, I_FNEG, I_FADD, I_FMUL, I_FSUB, I_FCMP_RR, I_FCMP_RI,
     I_UNKNOWN
 } instr_id_t;
 
@@ -113,6 +114,17 @@ module decoder (
             32'b1101000100??????????????????????: instr_id = I_SUB;
             32'b11101011??0?????????????????????: instr_id = I_SUBS;
 
+            // FP
+            32'b11111100010xxxxxxxxx00xxxxxxxxxx : instr_id = I_F_LDUR;
+            32'b11111100000xxxxxxxxx00xxxxxxxxxx : instr_id = I_F_STUR;
+            32'b0001111001100000010000xxxxxxxxxx : instr_id = I_FMOV;
+            32'b0001111001100001010000xxxxxxxxxx : instr_id = I_FNEG;
+            32'b00011110011xxxxx001010xxxxxxxxxx : instr_id = I_FADD;
+            32'b00011110011xxxxx000010xxxxxxxxxx : instr_id = I_FMUL;
+            32'b00011110011xxxxx001110xxxxxxxxxx : instr_id = I_FSUB;
+            32'b00011110011xxxxx001000xxxxx00000 : instr_id = I_FCMP_RR;
+            32'b00011110011xxxxx001000xxxxx01000 : instr_id = I_FCMP_RI;
+
             // Control transfer
             32'b000101??????????????????????????: instr_id = I_B;
             32'b01010100???????????????????0????: instr_id = I_BCOND;
@@ -190,7 +202,7 @@ module decoder (
 
                 case (uop_counter)
                     0: begin // COND_CHECK
-                        uop.fu_select   = ; // TODO: which fu does COND_CHECK go to?
+						uop.fu_select   = FU_ALU;
                         uop.fu_op       = OP_COND_CHECK;
                         uop.reads_flags = 1'b1;
                         uop.last_uop    = 1'b0;
@@ -317,6 +329,17 @@ module decoder (
             // =============================================================
             // FLOATING-POINT
             // =============================================================
+            
+            // MicroOps
+            // I_FMOV: OR w/ XZR
+            // I_FNEG: XOR
+            // I_FADD: NAN_CHECK + FADD
+            // I_FMUL: NAN_CHECK + FMUL
+            // I_FSUB: NAN_CHECK + XOR + FADD
+            // I_FCMP: NAN_CHECK + (ADD w/ flags) (have execptions)
+
+
+
 
             default: begin
             end
