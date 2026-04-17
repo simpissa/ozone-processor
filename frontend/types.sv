@@ -14,10 +14,18 @@ package frontend_types;
 
     typedef enum logic [4:0] {
         OP_ADD,
-        OP_SUB,
+        OP_SUB, // No micro op for sub, only add, have module convert subs to adds
         OP_MOV,
         OP_COND_CHECK,
-        OP_NOP
+        OP_NOP,
+        OP_COMPUTE_ADDR,
+        OP_LOAD,
+        OP_STORE,
+        OP_AND,
+        OP_OR,
+        OP_LSL,
+        OP_LSR,
+        OP_ASR
         // TODO: add more
     } fu_op_t; // which op to execute, depends on our fus
 

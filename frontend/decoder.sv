@@ -103,7 +103,7 @@ module decoder (
             32'b11111000010?????????00??????????: instr_id = I_LDUR;
             32'b11111000000?????????00??????????: instr_id = I_STUR;
 
-            // Data processing
+            // Data processing: immediate
             32'b111100101???????????????????????: instr_id = I_MOVK;
             32'b110100101???????????????????????: instr_id = I_MOVZ;
             32'b1??10000????????????????????????: instr_id = I_ADRP;
@@ -175,14 +175,229 @@ module decoder (
             // DATA TRANSFER
             // =============================================================
 
+            // Assume that AGU will forward value to memory unit in 1 cycle, once load/store reach
+            // the computed address will be available.
+
+            // If rs1=31, is SP not XZR
+            I_LDUR: begin
+                // AGU + RD
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_AGU;
+                        uop.fu_op=OP_COMPUTE_ADDR;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={55{instr[20]},instr[20:12]};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_LOAD;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+
+            I_STUR: begin
+                // AGU + WR
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_AGU;
+                        uop.fu_op=OP_COMPUTE_ADDR;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={55{instr[20]},instr[20:12]};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_STORE;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
 
             // =============================================================
             // DATA PROCESSING: IMMEDIATE
             // =============================================================
+            // If rd=31, is XZR not SP
+            I_MOVK: begin
+                // AND + OR
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_AND;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=instr[4:0];
+                        uop.rs1_valid=1'b1;
+                        case (instr[22:21])
+                            2'b00: uop.imm={48{1'b1},16{1'b0}};
+                            2'b01: uop.imm={32{1'b1},16{1'b0},16{1'b1}};
+                            2'b10: uop.imm={16{1'b1},16{1'b0},32{1'b1}};
+                            2'b11: uop.imm={16{1'b0},48{1'b1}};
+                        endcase
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_OR;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=instr[4:0];
+                        uop.rs1_valid=1'b1;
+                        case (instr[22:21])
+                            2'b00: uop.imm={48{1'b0},instr[20:5]};
+                            2'b01: uop.imm={32{1'b0},instr[20:5],16{1'b0}};
+                            2'b10: uop.imm={16{1'b0},instr[20:5],32{1'b0}};
+                            2'b11: uop.imm={instr[20:5],48{1'b0}};
+                        endcase
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+            I_MOVZ: begin
+                // OR w/ XZR
+                uop.fu_select=FU_LOGIC;
+                uop.fu_op=OP_OR;
+                uop.rd=instr[4:0];
+                uop.r_dest_valid=1'b1;
+                uop.rs1=5'b11111;   // XZR
+                uop.rs1_valid=1'b1;
+                case (instr[22:21])
+                    2'b00: uop.imm={48{1'b0},instr[20:5]};
+                    2'b01: uop.imm={32{1'b0},instr[20:5],16{1'b0}};
+                    2'b10: uop.imm={16{1'b0},instr[20:5],32{1'b0}};
+                    2'b11: uop.imm={instr[20:5],48{1'b0}};
+                endcase
+                uop.imm_valid=1'b1;
+            end
+            I_ADRP: begin
+                // AND + ADD
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_AND;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.src1_is_pc=1'b1;
+                        uop.imm={52{1'b1},12{1'b0}};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_ALU;
+                        uop.fu_op=OP_ADD;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=instr[4:0];
+                        uop.rs1_valid=1'b1;
+                        uop.imm={31{instr[23]},instr[23:5],instr[30:29],12{1'b0}};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
 
             // =============================================================
             // COMPUTATION (ARITHMETIC, LOGICAL, SHIFT)
             // =============================================================
+            I_ADD: begin
+                uop.fu_select=FU_ALU;
+                uop.fu_op=OP_ADD;
+                uop.rd=instr[4:0];
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;   // In context of ADD (imm), X31 is SP, not XZR
+                uop.rs1_valid=1'b1;
+                uop.imm={52{1'b0},instr[21:10]};
+                uop.imm_valid=1'b1;
+            end
+            I_ADDS: begin
+                // In context of ADDS (shifted reg), X31 is XZR, not SP
+                // SHIFT + ADD w/ flags
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=instr[20:16];
+                        uop.rs1_valid=1'b1;
+                        uop.imm={58{1'b0},instr[15:10]};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_ALU;
+                        uop.fu_op=OP_ADD;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.rs2=instr[4:0];
+                        uop.rs2_valid=1'b1;
+                        uop.sets_flags=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+            I_SUB: begin
+                uop.fu_select=FU_ALU;
+                uop.fu_op=OP_SUB;
+                uop.rd=instr[4:0];
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;   // In context of SUB (imm), X31 is SP, not XZR
+                uop.rs1_valid=1'b1;
+                uop.imm={52{1'b0},instr[21:10]};
+                uop.imm_valid=1'b1;
+            end
+            I_SUBS: begin
+                // In context of ADDS (shifted reg), X31 is XZR, not SP
+                // SHIFT + ADD w/ flags
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=instr[20:16];
+                        uop.rs1_valid=1'b1;
+                        uop.imm={58{1'b0},instr[15:10]};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_ALU;
+                        uop.fu_op=OP_SUB;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.rs2=instr[4:0];
+                        uop.rs2_valid=1'b1;
+                        uop.sets_flags=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
 
             // =============================================================
             // CONTROL TRANSFER
