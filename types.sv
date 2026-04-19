@@ -38,6 +38,8 @@ package frontend_types;
         SPR_INVALID
     } spr_t; // special purpose register id
 
+    localparam int unsigned ROB_TAG_W = 6;
+
     typedef struct packed {
         fu_t          fu_select;      // which functional unit handles this uop
         fu_op_t       fu_op;          // operation within that functional unit
@@ -62,5 +64,20 @@ package frontend_types;
         logic [3:0]   cond;           // condition code (for B.cond)
         spr_t         spr_id;         // special purpose register id
     } uop_t;
+
+    typedef struct packed {
+        fu_t                fu_select;
+        fu_op_t             fu_op;
+        logic [ROB_TAG_W-1:0] dest_tag;
+        logic [63:0]        src1_value;
+        logic [ROB_TAG_W-1:0] src1_tag;
+        logic               src1_ready;
+        logic [63:0]        src2_value;
+        logic [ROB_TAG_W-1:0] src2_tag;
+        logic               src2_ready;
+        logic [63:0]        imm;
+        logic               imm_valid;
+        logic [3:0]         cond;
+    } issue_payload_t;
 
 endpackage
