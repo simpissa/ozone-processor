@@ -54,6 +54,7 @@ module decoder (
 
     // fields
     logic [4:0] Rn_field;
+    logic [4:0] RmField;
 
     logic [25:0] simm26; // b1
     logic [18:0] simm19; // i2, b2
@@ -66,6 +67,7 @@ module decoder (
     logic [63:0] b_offset;
 
     assign Rn_field   = instr[9:5];
+    assign RmField = instr[20:16];
     assign simm26     = instr[25:0];
     assign simm19     = instr[23:5];
     assign imm16      = instr[20:5];
@@ -187,7 +189,7 @@ module decoder (
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.imm={55{instr[20]},instr[20:12]};
+                        uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
                     end
@@ -209,7 +211,7 @@ module decoder (
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.imm={55{instr[20]},instr[20:12]};
+                        uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
                     end
@@ -238,10 +240,10 @@ module decoder (
                         uop.rs1=instr[4:0];
                         uop.rs1_valid=1'b1;
                         case (instr[22:21])
-                            2'b00: uop.imm={48{1'b1},16{1'b0}};
-                            2'b01: uop.imm={32{1'b1},16{1'b0},16{1'b1}};
-                            2'b10: uop.imm={16{1'b1},16{1'b0},32{1'b1}};
-                            2'b11: uop.imm={16{1'b0},48{1'b1}};
+                            2'b00: uop.imm={{48{1'b1}},{16{1'b0}}};
+                            2'b01: uop.imm={{32{1'b1}},{16{1'b0}},{16{1'b1}}};
+                            2'b10: uop.imm={{16{1'b1}},{16{1'b0}},{32{1'b1}}};
+                            2'b11: uop.imm={{16{1'b0}},{48{1'b1}}};
                         endcase
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
@@ -254,10 +256,10 @@ module decoder (
                         uop.rs1=instr[4:0];
                         uop.rs1_valid=1'b1;
                         case (instr[22:21])
-                            2'b00: uop.imm={48{1'b0},instr[20:5]};
-                            2'b01: uop.imm={32{1'b0},instr[20:5],16{1'b0}};
-                            2'b10: uop.imm={16{1'b0},instr[20:5],32{1'b0}};
-                            2'b11: uop.imm={instr[20:5],48{1'b0}};
+                            2'b00: uop.imm={{48{1'b0}},instr[20:5]};
+                            2'b01: uop.imm={{32{1'b0}},instr[20:5],{16{1'b0}}};
+                            2'b10: uop.imm={{16{1'b0}},instr[20:5],{32{1'b0}}};
+                            2'b11: uop.imm={instr[20:5],{48{1'b0}}};
                         endcase
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b1;
@@ -273,10 +275,10 @@ module decoder (
                 uop.rs1=5'b11111;   // XZR
                 uop.rs1_valid=1'b1;
                 case (instr[22:21])
-                    2'b00: uop.imm={48{1'b0},instr[20:5]};
-                    2'b01: uop.imm={32{1'b0},instr[20:5],16{1'b0}};
-                    2'b10: uop.imm={16{1'b0},instr[20:5],32{1'b0}};
-                    2'b11: uop.imm={instr[20:5],48{1'b0}};
+                    2'b00: uop.imm={{48{1'b0}},instr[20:5]};
+                    2'b01: uop.imm={{32{1'b0}},instr[20:5],{16{1'b0}}};
+                    2'b10: uop.imm={{16{1'b0}},instr[20:5],{32{1'b0}}};
+                    2'b11: uop.imm={instr[20:5],{48{1'b0}}};
                 endcase
                 uop.imm_valid=1'b1;
             end
@@ -289,7 +291,7 @@ module decoder (
                         uop.rd=instr[4:0];
                         uop.r_dest_valid=1'b1;
                         uop.src1_is_pc=1'b1;
-                        uop.imm={52{1'b1},12{1'b0}};
+                        uop.imm={{52{1'b1}},{12{1'b0}}};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
                     end
@@ -300,7 +302,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=instr[4:0];
                         uop.rs1_valid=1'b1;
-                        uop.imm={31{instr[23]},instr[23:5],instr[30:29],12{1'b0}};
+                        uop.imm={{31{instr[23]}},instr[23:5],instr[30:29],{12{1'b0}}};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b1;
                     end
@@ -317,7 +319,7 @@ module decoder (
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;   // In context of ADD (imm), X31 is SP, not XZR
                 uop.rs1_valid=1'b1;
-                uop.imm={52{1'b0},instr[21:10]};
+                uop.imm={{52{1'b0}},instr[21:10]};
                 uop.imm_valid=1'b1;
             end
             I_ADDS: begin
@@ -336,7 +338,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
-                        uop.imm={58{1'b0},instr[15:10]};
+                        uop.imm={{58{1'b0}},instr[15:10]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
                     end
@@ -361,7 +363,7 @@ module decoder (
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;   // In context of SUB (imm), X31 is SP, not XZR
                 uop.rs1_valid=1'b1;
-                uop.imm={52{1'b0},instr[21:10]};
+                uop.imm={{52{1'b0}},instr[21:10]};
                 uop.imm_valid=1'b1;
             end
             I_SUBS: begin
@@ -380,7 +382,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
-                        uop.imm={58{1'b0},instr[15:10]};
+                        uop.imm={{58{1'b0}},instr[15:10]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
                     end
@@ -544,17 +546,200 @@ module decoder (
             // =============================================================
             // FLOATING-POINT
             // =============================================================
-            
-            // MicroOps
-            // I_FMOV: OR w/ XZR
-            // I_FNEG: XOR
-            // I_FADD: NAN_CHECK + FADD
-            // I_FMUL: NAN_CHECK + FMUL
-            // I_FSUB: NAN_CHECK + XOR + FADD
-            // I_FCMP: NAN_CHECK + (ADD w/ flags) (have execptions)
 
 
+            I_F_LDUR: begin
+              // AGU + RD
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_AGU;
+                  uop.fu_op=OP_COMPUTE_ADDR;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.imm={{55{instr[20]}},instr[20:12]};
+                  uop.imm_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_MEM;
+                  uop.fu_op=OP_LOAD;
+                  uop.rd=instr[4:0];
+                  uop.r_dest_valid=1'b1;
+                end
+              endcase
+            end
 
+            I_F_STUR: begin
+              // AGU + WR
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_AGU;
+                  uop.fu_op=OP_COMPUTE_ADDR;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.imm={{55{instr[20]}},instr[20:12]};
+                  uop.imm_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_MEM;
+                  uop.fu_op=OP_STORE;
+                  uop.rd=instr[4:0];
+                  uop.r_dest_valid=1'b1;
+                end
+              endcase
+            end
+
+            I_FMOV: begin
+              uop.fu_select=FU_LOGIC;
+              uop.fu_op=OP_OR;
+              uop.rd=instr[4:0];
+              uop.r_dest_valid=1'b1;
+              uop.rs1=5'b11111;
+              uop.rs1_valid=1'b1;
+              uop.rs2=Rn_field;
+              uop.rs2_valid=1'b1;
+            end
+
+            I_FNEG: begin
+              uop.fu_select=FU_LOGIC;
+              uop.fu_op=OP_XOR;
+              uop.rd=instr[4:0];
+              uop.r_dest_valid=1'b1;
+              uop.rs1=Rn_field;
+              uop.rs1_valid=1'b1;
+              uop.imm=64'h8000_0000_0000_0000;
+              uop.imm_valid=1'b1;
+            end
+
+            I_FADD: begin
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_NAN_CHECK;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_FADD;
+                  uop.rd=instr[4:0];
+                  uop.r_dest_valid=1'b1;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                end
+              endcase
+            end
+
+            I_FMUL: begin
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_NAN_CHECK;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_FMUL;
+                  uop.rd=instr[4:0];
+                  uop.r_dest_valid=1'b1;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                end
+              endcase
+            end
+
+            I_FSUB: begin
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_NAN_CHECK;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                    uop.fu_select=FU_LOGIC;
+                    uop.fu_op=OP_XOR;
+                    uop.rd=instr[4:0];
+                    uop.r_dest_valid=1'b1;
+                    uop.rs1=RmField;
+                    uop.rs1_valid=1'b1;
+                    uop.imm=64'h8000_0000_0000_0000;
+                    uop.imm_valid=1'b1;
+                    uop.last_uop=1'b0;
+                end
+                2: begin
+                    uop.fu_select=FU_FPU;
+                    uop.fu_op=OP_FADD;
+                    uop.rd=instr[4:0];
+                    uop.r_dest_valid=1'b1;
+                    uop.rs1=Rn_field;
+                    uop.rs1_valid=1'b1;
+                    uop.rs2=instr[4:0];
+                    uop.rs2_valid=1'b1;
+                end
+              endcase
+            end
+
+            I_FCMP_RR: begin
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_NAN_CHECK;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_FCMP;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=RmField;
+                  uop.rs2_valid=1'b1;
+                  uop.sets_flags=1'b1;
+                end
+              endcase
+            end
+
+            I_FCMP_RI: begin
+              case (uop_counter)
+                0: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_NAN_CHECK;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=5'd31;
+                  uop.rs2_valid=1'b1;
+                  uop.last_uop=1'b0;
+                end
+                1: begin
+                  uop.fu_select=FU_FPU;
+                  uop.fu_op=OP_FCMP;
+                  uop.rs1=Rn_field;
+                  uop.rs1_valid=1'b1;
+                  uop.rs2=5'd31;
+                  uop.rs2_valid=1'b1;
+                  uop.sets_flags=1'b1;
+                end
+              endcase
+            end
 
             default: begin
             end

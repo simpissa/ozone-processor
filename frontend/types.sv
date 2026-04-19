@@ -22,11 +22,15 @@ package frontend_types;
         OP_LOAD,
         OP_STORE,
         OP_AND,
+        OP_XOR,
         OP_OR,
         OP_LSL,
         OP_LSR,
-        OP_ASR
-        // TODO: add more
+        OP_ASR,
+        OP_NAN_CHECK,
+        OP_FADD,
+        OP_FMUL,
+        OP_FCMP
     } fu_op_t; // which op to execute, depends on our fus
 
     typedef enum logic [2:0] {
