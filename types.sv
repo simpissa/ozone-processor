@@ -62,7 +62,10 @@ package frontend_types;
         logic         last_uop;       // last uop of a multi-uop instruction
         logic         is_sequential;  // depends on the previous uop's result
         logic         is_branch;      // instruction is a branch
+        logic         is_store;       // uop commits through the store path
         logic         is_eret;        // instruction is ERET
+        logic         is_msr;         // uop writes an SPR at commit
+        logic         is_mrs;         // uop reads an SPR into a GPR
         logic         is_privileged;  // instruction is privileged (EL1 only)
         logic         is_svc;         // instruction is SVC
         logic [3:0]   cond;           // condition code (for B.cond)
@@ -73,9 +76,11 @@ package frontend_types;
         fu_t                fu_select;
         fu_op_t             fu_op;
         logic [ROB_TAG_W-1:0] dest_tag;
+        logic               src1_valid; // valid: is this register used in execution
         logic [63:0]        src1_value;
         logic [ROB_TAG_W-1:0] src1_tag;
-        logic               src1_ready;
+        logic               src1_ready; // ready: is the value ready now; if 0, its currently executing and needs to be snooped with rob tag
+        logic               src2_valid;
         logic [63:0]        src2_value;
         logic [ROB_TAG_W-1:0] src2_tag;
         logic               src2_ready;

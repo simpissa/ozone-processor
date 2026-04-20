@@ -165,7 +165,10 @@ module decoder (
         uop.last_uop       = 1'b1; // default to 1, set to 0 if not
         uop.is_sequential  = 1'b0;
         uop.is_branch      = 1'b0;
+        uop.is_store       = 1'b0;
         uop.is_eret        = 1'b0;
+        uop.is_msr         = 1'b0;
+        uop.is_mrs         = 1'b0;
         uop.is_privileged  = 1'b0;
         uop.is_svc         = 1'b0;
         uop.cond           = 4'd0;
@@ -218,6 +221,7 @@ module decoder (
                     1: begin
                         uop.fu_select=FU_MEM;
                         uop.fu_op=OP_STORE;
+                        uop.is_store=1'b1;
                         uop.rd=instr[4:0];
                         uop.r_dest_valid=1'b1;
                         uop.last_uop=1'b1;
@@ -503,6 +507,7 @@ module decoder (
             I_MRS: begin
                 // C6.2.194 Move System Register allows the PE to read an AArch64 System register into a general-purpose register.
                 uop.is_privileged = 1'b1;
+                uop.is_mrs        = 1'b1;
                 uop.fu_select     = FU_LOGIC;
                 uop.fu_op         = OP_MOV;
                 uop.rd            = instr[4:0];
@@ -514,6 +519,7 @@ module decoder (
                 // C6.2.196 Move general-purpose register to System Register allows the PE to write an AArch64 System register from a general-purpose register.
                 // At commit time, check for terminate written to ACTLR_EL1 (extra credit: low power state here)
                 uop.is_privileged = 1'b1;
+                uop.is_msr        = 1'b1;
                 uop.fu_select     = FU_LOGIC;
                 uop.fu_op         = OP_MOV;
                 uop.rs1           = instr[4:0];
@@ -584,6 +590,7 @@ module decoder (
                 1: begin
                   uop.fu_select=FU_MEM;
                   uop.fu_op=OP_STORE;
+                  uop.is_store=1'b1;
                   uop.rd=instr[4:0];
                   uop.r_dest_valid=1'b1;
                 end

@@ -33,13 +33,17 @@ module rename #(
     output logic                 rob_dest_valid,
     output logic [63:0]          rob_pc,
     output logic                 rob_is_branch,
+    output logic                 rob_is_store,
     output logic                 rob_pred_taken,
     output logic [63:0]          rob_pred_target,
     output logic                 rob_first_uop,
     output logic                 rob_last_uop,
     output logic                 rob_is_eret,
+    output logic                 rob_is_msr,
+    output logic                 rob_is_mrs,
     output logic                 rob_is_privileged,
     output logic                 rob_is_svc,
+    output logic                 rob_sets_flags,
     output spr_t                 rob_spr_id,
     input  logic [ROB_TAG_W-1:0] rob_tag,
     input  logic                 rob_ready,
@@ -56,11 +60,11 @@ module rename #(
     // ROB completed-value lookup for source resolution.
     output logic                 rob_src1_lookup_valid,
     output logic [ROB_TAG_W-1:0] rob_src1_lookup_tag,
-    input  logic                 rob_src1_lookup_ready,
+    input  logic                 rob_src1_lookup_hit_ready,
     input  logic [63:0]          rob_src1_lookup_value,
     output logic                 rob_src2_lookup_valid,
     output logic [ROB_TAG_W-1:0] rob_src2_lookup_tag,
-    input  logic                 rob_src2_lookup_ready,
+    input  logic                 rob_src2_lookup_hit_ready,
     input  logic [63:0]          rob_src2_lookup_value,
 
     // Renamed uop for issue to reservation stations.
@@ -93,13 +97,17 @@ module rename #(
     assign rob_dest_valid    = uop.r_dest_valid && (uop.rd != 5'd31);
     assign rob_pc            = pc;
     assign rob_is_branch     = uop.is_branch;
+    assign rob_is_store      = uop.is_store;
     assign rob_pred_taken    = pred_taken;
     assign rob_pred_target   = pred_target;
     assign rob_first_uop     = uop.first_uop;
     assign rob_last_uop      = uop.last_uop;
     assign rob_is_eret       = uop.is_eret;
+    assign rob_is_msr        = uop.is_msr;
+    assign rob_is_mrs        = uop.is_mrs;
     assign rob_is_privileged = uop.is_privileged;
     assign rob_is_svc        = uop.is_svc;
+    assign rob_sets_flags    = uop.sets_flags;
     assign rob_spr_id        = uop.spr_id;
 
     // Committed architectural state, speculative RAT state, and the sequential
@@ -180,68 +188,87 @@ module rename #(
         out_payload.imm_valid  = uop.imm_valid;
         out_payload.cond       = uop.cond;
 
-        // Unused sources are modeled as ready-zero because the current issue
-        // interface does not carry explicit src-valid bits.
-        out_payload.src1_ready = 1'b1;
-        out_payload.src2_ready = 1'b1;
-
         if (!flush && valid_in) begin
+            
+            // --- src1 --- 
             if (uop.src1_is_pc) begin
+                out_payload.src1_valid = 1'b1;
+                out_payload.src1_ready = 1'b1;
                 out_payload.src1_value = pc;
             end else if (uop.is_sequential) begin
+                out_payload.src1_valid = 1'b1;
                 rob_src1_lookup_valid = 1'b1;
                 rob_src1_lookup_tag   = prev_uop_tag;
 
-                if (rob_src1_lookup_ready)
+                if (rob_src1_lookup_hit_ready) begin
+                    // value found in rob
+                    out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = rob_src1_lookup_value;
-                else begin
+                end else begin
                     out_payload.src1_tag   = prev_uop_tag;
                     out_payload.src1_ready = 1'b0;
                 end
             end else if (uop.reads_flags) begin
-                if (!srat_valid[FLAGS_ENTRY])
+                out_payload.src1_valid = 1'b1;
+
+                if (!srat_valid[FLAGS_ENTRY]) begin
+                    out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = flags_arf;
-                else begin
+                end else begin
                     rob_src1_lookup_valid = 1'b1;
                     rob_src1_lookup_tag   = srat_tag[FLAGS_ENTRY];
 
-                    if (rob_src1_lookup_ready)
+                    if (rob_src1_lookup_hit_ready) begin
+                        out_payload.src1_ready = 1'b1;
                         out_payload.src1_value = rob_src1_lookup_value;
-                    else begin
+                    end else begin
                         out_payload.src1_tag   = srat_tag[FLAGS_ENTRY];
                         out_payload.src1_ready = 1'b0;
                     end
                 end
             end else if (uop.rs1_valid) begin
-                if (uop.rs1 == 5'd31)
+                out_payload.src1_valid = 1'b1;
+
+                // assume X31 is XZR TODO: make sure this is right
+                if (uop.rs1 == 5'd31) begin
+                    out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = 64'd0;
-                else if (!srat_valid[uop.rs1])
+                end else if (!srat_valid[uop.rs1]) begin
+                    // not in srat, can look up in arf
+                    out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = arf[uop.rs1];
-                else begin
+                end else begin
                     rob_src1_lookup_valid = 1'b1;
                     rob_src1_lookup_tag   = srat_tag[uop.rs1];
 
-                    if (rob_src1_lookup_ready)
+                    if (rob_src1_lookup_hit_ready) begin
+                        out_payload.src1_ready = 1'b1;
                         out_payload.src1_value = rob_src1_lookup_value;
-                    else begin
+                    end else begin
                         out_payload.src1_tag   = srat_tag[uop.rs1];
                         out_payload.src1_ready = 1'b0;
                     end
                 end
             end
 
+            // --- src2 ---
             if (uop.rs2_valid) begin
-                if (uop.rs2 == 5'd31)
+                out_payload.src2_valid = 1'b1;
+
+                if (uop.rs2 == 5'd31) begin
+                    out_payload.src2_ready = 1'b1;
                     out_payload.src2_value = 64'd0;
-                else if (!srat_valid[uop.rs2])
+                end else if (!srat_valid[uop.rs2]) begin
+                    out_payload.src2_ready = 1'b1;
                     out_payload.src2_value = arf[uop.rs2];
-                else begin
+                end else begin
                     rob_src2_lookup_valid = 1'b1;
                     rob_src2_lookup_tag   = srat_tag[uop.rs2];
 
-                    if (rob_src2_lookup_ready)
+                    if (rob_src2_lookup_hit_ready) begin
+                        out_payload.src2_ready = 1'b1;
                         out_payload.src2_value = rob_src2_lookup_value;
-                    else begin
+                    end else begin
                         out_payload.src2_tag   = srat_tag[uop.rs2];
                         out_payload.src2_ready = 1'b0;
                     end
