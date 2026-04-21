@@ -11,12 +11,14 @@ module fetch (
     // should be pretty easy to just get the flush signal and say goodbye
     // if that's the case, we still need to know where our pc should be, so
     // we need to keep one input for that
-    // execute/commit
+    // execute/commit 
+    /*
     input logic         exe_valid_i,
     input logic         exe_branch_i,
     input logic         exe_conditional_i,
     input logic [63:0]  exe_pc_i,
     input logic         exe_taken_i,
+    */
     input logic [63:0]  exe_target_i,
 
     // decode

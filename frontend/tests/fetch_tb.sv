@@ -6,11 +6,13 @@ logic clk_in;
 logic reset;
 logic flush;
 
+/*
 logic exe_valid;
 logic exe_branch;
 logic exe_conditional;
 logic [63:0] exe_pc;
 logic exe_taken;
+*/
 logic [63:0] exe_target;
 
 logic dcode_ready;
@@ -39,11 +41,13 @@ fetch #() f (
     .clk(clk_in),
     .reset(reset),
     .flush(flush),
+    /*
     .exe_valid_i(exe_valid),
     .exe_branch_i(exe_branch),
     .exe_conditional_i(exe_conditional),
     .exe_pc_i(exe_pc),
     .exe_taken_i(exe_taken),
+    */
     .exe_target_i(exe_target),
     .dcode_ready_i(dcode_ready),
     .dcode_instr_o(dcode_instr),
