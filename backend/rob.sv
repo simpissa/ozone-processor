@@ -39,14 +39,8 @@ module rob #(
     output logic                 rob_src2_lookup_hit_ready,
     output logic [63:0]          rob_src2_lookup_value,
 
-    // Common data bus writeback
-    input  logic                 cdb_valid,
-    input  logic [ROB_TAG_W-1:0] cdb_tag,
-    input  logic [63:0]          cdb_value,
-    input  logic                 cdb_exception,
-    input  logic [3:0]           cdb_exception_code,
-    input  logic                 cdb_mispredicted,
-    input  logic [63:0]          cdb_actual_target,
+    // Common data bus broadcast
+    input  fu_result_t           cdb_result,
 
     // Commit information consumed by rename
     output logic                 rob_commit_valid,
@@ -138,13 +132,23 @@ module rob #(
         rob_src2_lookup_value = 64'd0;
 
         if (rob_src1_lookup_valid) begin
-            rob_src1_lookup_hit_ready = entries[rob_src1_lookup_tag].ready;
-            rob_src1_lookup_value = entries[rob_src1_lookup_tag].result;
+            if (cdb_result.valid && (cdb_result.tag == rob_src1_lookup_tag)) begin
+                rob_src1_lookup_hit_ready = 1'b1;
+                rob_src1_lookup_value = cdb_result.value;
+            end else begin
+                rob_src1_lookup_hit_ready = entries[rob_src1_lookup_tag].ready;
+                rob_src1_lookup_value = entries[rob_src1_lookup_tag].result;
+            end
         end
 
         if (rob_src2_lookup_valid) begin
-            rob_src2_lookup_hit_ready = entries[rob_src2_lookup_tag].ready;
-            rob_src2_lookup_value = entries[rob_src2_lookup_tag].result;
+            if (cdb_result.valid && (cdb_result.tag == rob_src2_lookup_tag)) begin
+                rob_src2_lookup_hit_ready = 1'b1;
+                rob_src2_lookup_value = cdb_result.value;
+            end else begin
+                rob_src2_lookup_hit_ready = entries[rob_src2_lookup_tag].ready;
+                rob_src2_lookup_value = entries[rob_src2_lookup_tag].result;
+            end
         end
     end
 

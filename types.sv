@@ -89,4 +89,14 @@ package frontend_types;
         logic [3:0]         cond;
     } issue_payload_t;
 
+    typedef struct packed {
+        logic               valid;
+        logic [ROB_TAG_W-1:0] tag;
+        logic [63:0]        value;
+        logic               exception;      // set just by mem I think? 
+        logic [3:0]         exception_code; 
+        logic               mispredicted;  // these 2 are only set by ALU
+        logic [63:0]        actual_target; // since it handles conditionals
+    } fu_result_t; // output of FUs (same for everyone); leave unused fields as 0
+
 endpackage
