@@ -188,6 +188,13 @@ module decoder (
                 // AGU + RD
                 case (uop_counter)
                     0: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_LOAD;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                    1: begin
                         uop.fu_select=FU_AGU;
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
@@ -195,13 +202,6 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
-                    end
-                    1: begin
-                        uop.fu_select=FU_MEM;
-                        uop.fu_op=OP_LOAD;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
-                        uop.last_uop=1'b1;
                     end
                 endcase
             end
@@ -210,6 +210,14 @@ module decoder (
                 // AGU + WR
                 case (uop_counter)
                     0: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_STORE;
+                        uop.is_store=1'b1;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                    1: begin
                         uop.fu_select=FU_AGU;
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
@@ -217,14 +225,6 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
-                    end
-                    1: begin
-                        uop.fu_select=FU_MEM;
-                        uop.fu_op=OP_STORE;
-                        uop.is_store=1'b1;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
-                        uop.last_uop=1'b1;
                     end
                 endcase
             end

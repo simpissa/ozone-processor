@@ -107,10 +107,14 @@ module store_queue #(
                         int result;
                         result = msb_runtime(tag_matching);
                         addr=result[$clog2(SQ_SIZE)-1:0];
-                        SQ[addr].trace_vaddr<=trace_vaddr;
-                        SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
-                        SQ[addr].trace_value_is_valid<=trace_value_is_valid;
-                        SQ[addr].trace_value<=trace_value;
+                        if(trace_vaddr_is_valid) begin
+                            SQ[addr].trace_vaddr<=trace_vaddr;
+                            SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
+                        end
+                        if(trace_value_is_valid) begin
+                            SQ[addr].trace_value_is_valid<=trace_value_is_valid;
+                            SQ[addr].trace_value<=trace_value;
+                        end
                     end
                 end else begin
                     if(write_new_data) begin
