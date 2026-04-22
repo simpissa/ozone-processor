@@ -213,7 +213,7 @@ module lu_rs #(
             valid_out<=selected;
 
             // Update any entries matching with bus tag
-            for (int j=0;j<RS_ENTRIES;j++){
+            for (int j=0;j<RS_ENTRIES;j++) begin
                 if(tag1_matching[j]) begin
                     rs[j].waiting1<=1'b0;
                     rs[j].arg1<=bus.value;
@@ -222,7 +222,7 @@ module lu_rs #(
                     rs[j].waiting2<=1'b0;
                     rs[j].arg2<=bus.value;
                 end
-            }
+            end
         end
     end
 endmodule

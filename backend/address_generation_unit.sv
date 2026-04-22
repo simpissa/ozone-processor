@@ -149,12 +149,12 @@ module agu_rs #(
             valid_out<=selected;
 
             // Update any entries matching with bus tag
-            for (int j=0;j<RS_ENTRIES;j++){
+            for (int j=0;j<RS_ENTRIES;j++) begin
                 if(tag_matching[j]) begin
                     rs[j].waiting<=1'b0;
                     rs[j].addr<=bus.value;
                 end
-            }
+            end
         end
     end
 endmodule
