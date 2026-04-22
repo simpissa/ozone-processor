@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 module rob #(
     parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W)

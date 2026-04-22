@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 module cdb #(
     parameter int unsigned NUM_FUS = 6

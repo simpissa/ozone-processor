@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 module backend #(
 	parameter int unsigned tagW = 6

@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 module rename #(
     parameter int unsigned NUM_ARCH_REGS = 31,

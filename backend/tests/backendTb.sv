@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 module backend_tb;
   localparam int unsigned tagW = 6;

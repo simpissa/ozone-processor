@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-import frontend_types::*;
+import types::*;
 
 typedef enum logic [5:0] {
     I_LDUR, I_STUR, I_MOVK, I_MOVZ, I_ADRP,

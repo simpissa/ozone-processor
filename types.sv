@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-package frontend_types;
+package types;
 
     typedef enum logic [2:0] {
         FU_ALU,
