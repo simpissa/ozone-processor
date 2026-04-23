@@ -3,7 +3,10 @@
 import types::*;
 
 module rob #(
-    parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W)
+    parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W),
+    parameter logic [63:0] SYNC_EXCEPTION_OFFSET = 64'd0,
+    parameter logic [63:0] TERMINATE_VALUE = 64'hFFFF_FFFF_FFFF_FFFF,
+    parameter logic [3:0]  SVC_EXCEPTION_CODE = 4'd1
 ) (
     input  logic                 clk,
     input  logic                 rst,
@@ -28,6 +31,7 @@ module rob #(
     input  logic                 last_uop_in,
     input  logic [63:0]          pred_target,
     input  logic                 pred_taken,
+    input  logic                 alloc_self_ready, // ready on allocation (nop)
 
     // Rename lookup ports for completed ROB values
     input  logic                 src1_lookup_valid,
@@ -108,12 +112,20 @@ module rob #(
     } rob_entry_t;
 
     rob_entry_t entries [0:ROB_SIZE-1];
+    rob_entry_t entries_n [0:ROB_SIZE-1];
 
     // Head/tail pointers use one extra wrap bit
     logic [ROB_TAG_W:0]   head;
     logic [ROB_TAG_W:0]   tail;
+    logic [ROB_TAG_W:0]   head_n;
+    logic [ROB_TAG_W:0]   tail_n;
     logic [ROB_TAG_W-1:0] head_idx;
     logic [ROB_TAG_W-1:0] tail_idx;
+
+    rob_entry_t           head_entry;
+    logic                 head_can_commit;
+    logic                 head_branch_mispredict;
+    logic                 head_eret_redirect;
 
     integer i;
 
@@ -156,6 +168,31 @@ module rob #(
     end
 
     always_comb begin
+        head_n = head;
+        tail_n = tail;
+
+        for (int idx = 0; idx < ROB_SIZE; idx = idx + 1)
+            entries_n[idx] = entries[idx];
+
+        // consume cdb into entries_n
+        if (cdb_result.valid) begin
+            // Branch completions use value as the resolved next PC, so the
+            // ROB consumes the CDB as the canonical next-state view.
+            entries_n[cdb_result.tag].result         = cdb_result.value;
+            entries_n[cdb_result.tag].flags          = cdb_result.flags;
+            entries_n[cdb_result.tag].flags_valid    = cdb_result.flags_valid;
+            entries_n[cdb_result.tag].ready          = 1'b1;
+            entries_n[cdb_result.tag].exception      = cdb_result.exception;
+            entries_n[cdb_result.tag].exception_code = cdb_result.exception_code;
+        end
+
+        head_entry = entries_n[head_idx];
+        head_can_commit = head_entry.valid && head_entry.ready;
+        head_branch_mispredict = head_entry.is_branch &&
+                                 head_entry.last_uop &&
+                                 (head_entry.result != head_entry.predicted_target);
+        head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
+
         commit_gpr_valid       = 1'b0;
         commit_gpr_rd          = '0;
         commit_gpr_value       = 64'd0;
@@ -176,6 +213,94 @@ module rob #(
         commit_terminate       = 1'b0;
 
         flush                  = 1'b0;
+
+        // in-order commit
+        if (head_can_commit) begin
+            commit_tag = head_idx;
+
+            if (head_entry.exception) begin
+                commit_is_exception   = 1'b1;
+                commit_exception_code = head_entry.exception_code;
+                commit_exception_pc   = head_entry.pc;
+                commit_redirect       = 1'b1;
+                commit_redirect_pc    = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
+                flush                 = 1'b1;
+            end else begin
+                commit_gpr_valid = head_entry.rd_valid && !head_entry.is_store;
+                commit_gpr_rd    = head_entry.arch_rd;
+                commit_gpr_value = head_entry.result;
+
+                commit_spr_valid = head_entry.is_msr;
+                commit_spr_id    = head_entry.spr_id;
+                commit_spr_value = head_entry.result;
+
+                commit_flags_valid = head_entry.sets_flags && head_entry.flags_valid;
+                commit_flags_value = head_entry.flags;
+
+                commit_store     = head_entry.is_store;
+                commit_store_tag = head_idx;
+
+                commit_terminate = head_entry.is_msr &&
+                                   (head_entry.spr_id == SPR_ACTLR_EL1) &&
+                                   (head_entry.result == TERMINATE_VALUE) &&
+                                   head_entry.last_uop;
+
+                if (head_branch_mispredict) begin
+                    commit_redirect    = 1'b1;
+                    commit_redirect_pc = head_entry.result;
+                    flush              = 1'b1;
+                end
+
+                if (head_eret_redirect) begin
+                    commit_redirect    = 1'b1;
+                    commit_redirect_pc = spr_elr_el1;
+                    commit_is_eret     = 1'b1;
+                    flush              = 1'b1;
+                end
+            end
+        end
+
+        if (flush) begin
+            head_n = '0;
+            tail_n = '0;
+
+            for (int idx = 0; idx < ROB_SIZE; idx = idx + 1)
+                entries_n[idx] = '{default: '0, spr_id: SPR_INVALID};
+        end else begin
+            if (head_can_commit) begin
+                entries_n[head_idx].valid = 1'b0;
+                head_n                    = head + 1'b1;
+            end
+
+            // Allocation comes after commit so a new dispatch wins if both
+            // target the same slot in a tiny/full-wrap ROB scenario.
+            if (alloc_valid && ready_out) begin
+                entries_n[tail_idx].pc               = pc_in;
+                entries_n[tail_idx].arch_rd          = dest_reg;
+                entries_n[tail_idx].rd_valid         = dest_valid;
+                entries_n[tail_idx].is_branch        = is_branch_in;
+                entries_n[tail_idx].is_store         = is_store_in;
+                entries_n[tail_idx].is_eret          = is_eret_in;
+                entries_n[tail_idx].is_svc           = is_svc_in;
+                entries_n[tail_idx].is_msr           = is_msr_in;
+                entries_n[tail_idx].is_mrs           = is_mrs_in;
+                entries_n[tail_idx].is_privileged    = is_privileged_in;
+                entries_n[tail_idx].sets_flags       = sets_flags_in;
+                entries_n[tail_idx].spr_id           = spr_id_in;
+                entries_n[tail_idx].first_uop        = first_uop_in;
+                entries_n[tail_idx].last_uop         = last_uop_in;
+                entries_n[tail_idx].predicted_target = pred_target;
+                entries_n[tail_idx].predicted_taken  = pred_taken;
+                entries_n[tail_idx].ready            = alloc_self_ready || is_svc_in;
+                entries_n[tail_idx].result           = 64'd0;
+                entries_n[tail_idx].flags            = 4'd0;
+                entries_n[tail_idx].flags_valid      = 1'b0;
+                entries_n[tail_idx].exception        = is_svc_in;
+                entries_n[tail_idx].exception_code   = is_svc_in ? SVC_EXCEPTION_CODE : 4'd0;
+                entries_n[tail_idx].valid            = 1'b1;
+                tail_n                               = tail + 1'b1;
+            end
+        end
     end
 
     always_ff @(posedge clk) begin
@@ -186,44 +311,11 @@ module rob #(
             for (i = 0; i < ROB_SIZE; i = i + 1)
                 entries[i] <= '{default: '0, spr_id: SPR_INVALID};
         end else begin
-            if (cdb_result.valid) begin
-                // Branch completions use value as the resolved next PC, so the
-                // ROB only needs the canonical result plus exception/flags state.
-                entries[cdb_result.tag].result         <= cdb_result.value;
-                entries[cdb_result.tag].flags          <= cdb_result.flags;
-                entries[cdb_result.tag].flags_valid    <= cdb_result.flags_valid;
-                entries[cdb_result.tag].ready          <= 1'b1;
-                entries[cdb_result.tag].exception      <= cdb_result.exception;
-                entries[cdb_result.tag].exception_code <= cdb_result.exception_code;
-            end
+            head <= head_n;
+            tail <= tail_n;
 
-            // allocate rob entry (from rename)
-            if (alloc_valid && ready_out) begin
-                entries[tail_idx].pc               <= pc_in;
-                entries[tail_idx].arch_rd          <= dest_reg;
-                entries[tail_idx].rd_valid         <= dest_valid;
-                entries[tail_idx].is_branch        <= is_branch_in;
-                entries[tail_idx].is_store         <= is_store_in;
-                entries[tail_idx].is_eret          <= is_eret_in;
-                entries[tail_idx].is_svc           <= is_svc_in;
-                entries[tail_idx].is_msr           <= is_msr_in;
-                entries[tail_idx].is_mrs           <= is_mrs_in;
-                entries[tail_idx].is_privileged    <= is_privileged_in;
-                entries[tail_idx].sets_flags       <= sets_flags_in;
-                entries[tail_idx].spr_id           <= spr_id_in;
-                entries[tail_idx].first_uop        <= first_uop_in;
-                entries[tail_idx].last_uop         <= last_uop_in;
-                entries[tail_idx].predicted_target <= pred_target;
-                entries[tail_idx].predicted_taken  <= pred_taken;
-                entries[tail_idx].ready            <= 1'b0;
-                entries[tail_idx].result           <= 64'd0;
-                entries[tail_idx].flags            <= 4'd0;
-                entries[tail_idx].flags_valid      <= 1'b0;
-                entries[tail_idx].exception        <= 1'b0;
-                entries[tail_idx].exception_code   <= 4'd0;
-                entries[tail_idx].valid            <= 1'b1;
-                tail                               <= tail + 1'b1;
-            end
+            for (i = 0; i < ROB_SIZE; i = i + 1)
+                entries[i] <= entries_n[i];
         end
     end
 

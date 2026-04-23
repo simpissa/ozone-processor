@@ -44,6 +44,7 @@ module rename #(
     output logic                 rob_is_svc,
     output logic                 rob_sets_flags,
     output spr_t                 rob_spr_id,
+    output logic                 rob_alloc_self_ready,
     input  logic [ROB_TAG_W-1:0] rob_tag,
     input  logic                 rob_ready,
 
@@ -104,7 +105,7 @@ module rename #(
     // the ROB and receives the allocated tag back on rob_tag.
     assign rob_alloc_valid   = rename_fire;
     assign rob_dest_reg      = uop.rd;
-    assign rob_dest_valid    = uop.r_dest_valid && (uop.rd != 5'd31);
+    assign rob_dest_valid    = uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store;
     assign rob_pc            = pc;
     assign rob_is_branch     = uop.is_branch;
     assign rob_is_store      = uop.is_store;
@@ -119,6 +120,7 @@ module rename #(
     assign rob_is_svc        = uop.is_svc;
     assign rob_sets_flags    = uop.sets_flags;
     assign rob_spr_id        = uop.spr_id;
+    assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
 
     // Committed GPR/flags/SPR state, speculative rename state, and the
     // sequential-uop latch all live here. Flush clears speculative state only.
@@ -194,7 +196,7 @@ module rename #(
             if (rename_fire) begin
                 prev_uop_tag <= rob_tag;
 
-                if (uop.r_dest_valid && (uop.rd != 5'd31)) begin
+                if (uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store) begin
                     gpr_srat_valid[uop.rd] <= 1'b1;
                     gpr_srat_tag[uop.rd]   <= rob_tag;
                 end
