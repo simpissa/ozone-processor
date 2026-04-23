@@ -94,13 +94,11 @@ package types;
     typedef struct packed {
         logic               valid;
         logic [ROB_TAG_W-1:0] tag;
-        logic [63:0]        value;
+        logic [63:0]        value;          // GPR result or resolved next PC for branches
         logic [3:0]         flags;
         logic               flags_valid;
         logic               exception;      // set just by mem I think? 
         logic [3:0]         exception_code; 
-        logic               mispredicted;  // these 2 are only set by ALU
-        logic [63:0]        actual_target; // since it handles conditionals
     } fu_result_t; // output of FUs (same for everyone); leave unused fields as 0
 
 endpackage
