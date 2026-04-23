@@ -20,7 +20,6 @@ module decoder (
     // fetch i/o
     input  logic [31:0] instr,
     input  logic [63:0] pc, // needed for branch instructions
-    input  logic        el,
     input  logic        valid_in,
     output logic        ready_out,
 
