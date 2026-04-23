@@ -36,10 +36,12 @@ module rob #(
     // Rename lookup ports for completed ROB values
     input  logic                 src1_lookup_valid,
     input  logic [ROB_TAG_W-1:0] src1_lookup_tag,
+    input  logic                 src1_lookup_flags,
     output logic                 src1_lookup_hit_ready,
     output logic [63:0]          src1_lookup_value,
     input  logic                 src2_lookup_valid,
     input  logic [ROB_TAG_W-1:0] src2_lookup_tag,
+    input  logic                 src2_lookup_flags,
     output logic                 src2_lookup_hit_ready,
     output logic [63:0]          src2_lookup_value,
 
@@ -127,8 +129,6 @@ module rob #(
     logic                 head_branch_mispredict;
     logic                 head_eret_redirect;
 
-    integer i;
-
     assign head_idx   = head[ROB_TAG_W-1:0];
     assign tail_idx   = tail[ROB_TAG_W-1:0];
     assign empty      = (head == tail);
@@ -147,7 +147,15 @@ module rob #(
         src2_lookup_value = 64'd0;
 
         if (src1_lookup_valid) begin
-            if (cdb_result.valid && (cdb_result.tag == src1_lookup_tag)) begin
+            if (src1_lookup_flags) begin
+                if (cdb_result.valid && (cdb_result.tag == src1_lookup_tag) && cdb_result.flags_valid) begin
+                    src1_lookup_hit_ready = 1'b1;
+                    src1_lookup_value = {{60{1'b0}}, cdb_result.flags};
+                end else begin
+                    src1_lookup_hit_ready = entries[src1_lookup_tag].flags_valid;
+                    src1_lookup_value = {{60{1'b0}}, entries[src1_lookup_tag].flags};
+                end
+            end else if (cdb_result.valid && (cdb_result.tag == src1_lookup_tag)) begin
                 src1_lookup_hit_ready = 1'b1;
                 src1_lookup_value = cdb_result.value;
             end else begin
@@ -157,7 +165,15 @@ module rob #(
         end
 
         if (src2_lookup_valid) begin
-            if (cdb_result.valid && (cdb_result.tag == src2_lookup_tag)) begin
+            if (src2_lookup_flags) begin
+                if (cdb_result.valid && (cdb_result.tag == src2_lookup_tag) && cdb_result.flags_valid) begin
+                    src2_lookup_hit_ready = 1'b1;
+                    src2_lookup_value = {{60{1'b0}}, cdb_result.flags};
+                end else begin
+                    src2_lookup_hit_ready = entries[src2_lookup_tag].flags_valid;
+                    src2_lookup_value = {{60{1'b0}}, entries[src2_lookup_tag].flags};
+                end
+            end else if (cdb_result.valid && (cdb_result.tag == src2_lookup_tag)) begin
                 src2_lookup_hit_ready = 1'b1;
                 src2_lookup_value = cdb_result.value;
             end else begin
@@ -168,31 +184,7 @@ module rob #(
     end
 
     always_comb begin
-        head_n = head;
-        tail_n = tail;
-
-        for (int idx = 0; idx < ROB_SIZE; idx = idx + 1)
-            entries_n[idx] = entries[idx];
-
-        // consume cdb into entries_n
-        if (cdb_result.valid) begin
-            // Branch completions use value as the resolved next PC, so the
-            // ROB consumes the CDB as the canonical next-state view.
-            entries_n[cdb_result.tag].result         = cdb_result.value;
-            entries_n[cdb_result.tag].flags          = cdb_result.flags;
-            entries_n[cdb_result.tag].flags_valid    = cdb_result.flags_valid;
-            entries_n[cdb_result.tag].ready          = 1'b1;
-            entries_n[cdb_result.tag].exception      = cdb_result.exception;
-            entries_n[cdb_result.tag].exception_code = cdb_result.exception_code;
-        end
-
-        head_entry = entries_n[head_idx];
-        head_can_commit = head_entry.valid && head_entry.ready;
-        head_branch_mispredict = head_entry.is_branch &&
-                                 head_entry.last_uop &&
-                                 (head_entry.result != head_entry.predicted_target);
-        head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
-
+        // defaults
         commit_gpr_valid       = 1'b0;
         commit_gpr_rd          = '0;
         commit_gpr_value       = 64'd0;
@@ -211,8 +203,30 @@ module rob #(
         commit_exception_code  = 4'd0;
         commit_exception_pc    = 64'd0;
         commit_terminate       = 1'b0;
-
         flush                  = 1'b0;
+
+        head_n = head;
+        tail_n = tail;
+
+        entries_n = entries;
+
+        if (cdb_result.valid) begin
+            // Branch completions use value as the resolved next PC, so the
+            // ROB consumes the CDB as the canonical next-state view.
+            entries_n[cdb_result.tag].result         = cdb_result.value;
+            entries_n[cdb_result.tag].flags          = cdb_result.flags;
+            entries_n[cdb_result.tag].flags_valid    = cdb_result.flags_valid;
+            entries_n[cdb_result.tag].ready          = 1'b1;
+            entries_n[cdb_result.tag].exception      = cdb_result.exception;
+            entries_n[cdb_result.tag].exception_code = cdb_result.exception_code;
+        end
+
+        head_entry = entries_n[head_idx];
+        head_can_commit = head_entry.valid && head_entry.ready;
+        head_branch_mispredict = head_entry.is_branch &&
+                                 head_entry.last_uop &&
+                                 (head_entry.result != head_entry.predicted_target);
+        head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
 
         // in-order commit
         if (head_can_commit) begin
@@ -264,8 +278,7 @@ module rob #(
             head_n = '0;
             tail_n = '0;
 
-            for (int idx = 0; idx < ROB_SIZE; idx = idx + 1)
-                entries_n[idx] = '{default: '0, spr_id: SPR_INVALID};
+            entries_n = '{default: '{default: '0, spr_id: SPR_INVALID}};
         end else begin
             if (head_can_commit) begin
                 entries_n[head_idx].valid = 1'b0;
@@ -308,14 +321,12 @@ module rob #(
             head <= '0;
             tail <= '0;
 
-            for (i = 0; i < ROB_SIZE; i = i + 1)
-                entries[i] <= '{default: '0, spr_id: SPR_INVALID};
+            entries <= '{default: '{default: '0, spr_id: SPR_INVALID}};
         end else begin
             head <= head_n;
             tail <= tail_n;
 
-            for (i = 0; i < ROB_SIZE; i = i + 1)
-                entries[i] <= entries_n[i];
+            entries <= entries_n;
         end
     end
 

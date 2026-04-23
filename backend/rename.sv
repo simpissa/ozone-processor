@@ -66,10 +66,12 @@ module rename #(
     // ROB completed-value lookup for source resolution.
     output logic                 rob_src1_lookup_valid,
     output logic [ROB_TAG_W-1:0] rob_src1_lookup_tag,
+    output logic                 rob_src1_lookup_flags,
     input  logic                 rob_src1_lookup_hit_ready,
     input  logic [63:0]          rob_src1_lookup_value,
     output logic                 rob_src2_lookup_valid,
     output logic [ROB_TAG_W-1:0] rob_src2_lookup_tag,
+    output logic                 rob_src2_lookup_flags,
     input  logic                 rob_src2_lookup_hit_ready,
     input  logic [63:0]          rob_src2_lookup_value,
 
@@ -219,8 +221,10 @@ module rename #(
     always_comb begin
         rob_src1_lookup_valid = 1'b0;
         rob_src1_lookup_tag   = '0;
+        rob_src1_lookup_flags = 1'b0;
         rob_src2_lookup_valid = 1'b0;
         rob_src2_lookup_tag   = '0;
+        rob_src2_lookup_flags = 1'b0;
 
         out_payload            = '0;
         out_payload.fu_select  = uop.fu_select;
@@ -259,6 +263,7 @@ module rename #(
                 end else begin
                     rob_src1_lookup_valid = 1'b1;
                     rob_src1_lookup_tag   = flags_srat_tag;
+                    rob_src1_lookup_flags = 1'b1;
 
                     if (rob_src1_lookup_hit_ready) begin
                         out_payload.src1_ready = 1'b1;
