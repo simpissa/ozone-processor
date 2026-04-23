@@ -25,7 +25,6 @@ module fetch (
     input logic         dcode_ready_i,
     output logic [31:0] dcode_instr_o,
     output logic [63:0] dcode_pc_o,
-    output logic        dcode_el_o, // what is this, what does it do?
     output logic        dcode_valid_o,
     
     // backend
@@ -38,7 +37,7 @@ module fetch (
     // iTLB
     input logic         itlb_hit_i,
     input logic [29:0]  itlb_paddr_i,
-    input logic         itlb_miss_i, // not sure this is necessary
+    input logic         itlb_miss_i,
     output logic [63:0] itlb_vaddr_o, 
     // output logic       itlb_valid_o,
 
