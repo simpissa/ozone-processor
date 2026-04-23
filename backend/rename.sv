@@ -49,12 +49,11 @@ module rename #(
     input  logic                 rob_ready,
 
     // ROB commit interface for updating committed architectural state (ARF)
-    input  logic                 rob_commit_valid,
+    input  logic                 rob_commit_gpr_valid,
     input  logic [ROB_TAG_W-1:0] rob_commit_tag,
-    input  logic [4:0]           rob_commit_dest_reg,
-    input  logic                 rob_commit_dest_valid,
-    input  logic [63:0]          rob_commit_value,
-    input  logic                 rob_commit_sets_flags,
+    input  logic [4:0]           rob_commit_gpr_rd,
+    input  logic [63:0]          rob_commit_gpr_value,
+    input  logic                 rob_commit_flags_valid,
     input  logic [63:0]          rob_commit_flags_value,
 
     // ROB completed-value lookup for source resolution.
@@ -136,23 +135,21 @@ module rename #(
             end
 
             // rob commit, update ARF
-            if (rob_commit_valid) begin
-                if (rob_commit_dest_valid && (rob_commit_dest_reg != 5'd31)) begin
-                    arf[rob_commit_dest_reg] <= rob_commit_value;
+            if (rob_commit_gpr_valid && (rob_commit_gpr_rd != 5'd31)) begin
+                arf[rob_commit_gpr_rd] <= rob_commit_gpr_value;
 
-                    if (srat_valid[rob_commit_dest_reg] && (srat_tag[rob_commit_dest_reg] == rob_commit_tag)) begin
-                        srat_valid[rob_commit_dest_reg] <= 1'b0;
-                        srat_tag[rob_commit_dest_reg]   <= '0;
-                    end
+                if (srat_valid[rob_commit_gpr_rd] && (srat_tag[rob_commit_gpr_rd] == rob_commit_tag)) begin
+                    srat_valid[rob_commit_gpr_rd] <= 1'b0;
+                    srat_tag[rob_commit_gpr_rd]   <= '0;
                 end
+            end
 
-                if (rob_commit_sets_flags) begin
-                    flags_arf <= rob_commit_flags_value;
+            if (rob_commit_flags_valid) begin
+                flags_arf <= rob_commit_flags_value;
 
-                    if (srat_valid[FLAGS_ENTRY] && (srat_tag[FLAGS_ENTRY] == rob_commit_tag)) begin
-                        srat_valid[FLAGS_ENTRY] <= 1'b0;
-                        srat_tag[FLAGS_ENTRY]   <= '0;
-                    end
+                if (srat_valid[FLAGS_ENTRY] && (srat_tag[FLAGS_ENTRY] == rob_commit_tag)) begin
+                    srat_valid[FLAGS_ENTRY] <= 1'b0;
+                    srat_tag[FLAGS_ENTRY]   <= '0;
                 end
             end
 

@@ -9,58 +9,60 @@ module rob #(
     input  logic                 rst,
 
     // Rename -> ROB allocation path
-    input  logic                 rob_alloc_valid,
-    output logic                 rob_ready,
-    output logic [ROB_TAG_W-1:0] rob_tag,
-    input  logic [63:0]          rob_pc,
-    input  logic [4:0]           rob_dest_reg,
-    input  logic                 rob_dest_valid,
-    input  logic                 rob_is_branch,
-    input  logic                 rob_is_store,
-    input  logic                 rob_is_eret,
-    input  logic                 rob_is_svc,
-    input  logic                 rob_is_msr,
-    input  logic                 rob_is_mrs,
-    input  logic                 rob_is_privileged,
-    input  logic                 rob_sets_flags,
-    input  spr_t                 rob_spr_id,
-    input  logic                 rob_first_uop,
-    input  logic                 rob_last_uop,
-    input  logic [63:0]          rob_pred_target,
-    input  logic                 rob_pred_taken,
+    input  logic                 alloc_valid,
+    output logic                 ready_out,
+    output logic [ROB_TAG_W-1:0] alloc_tag,
+    input  logic [63:0]          pc_in,
+    input  logic [4:0]           dest_reg,
+    input  logic                 dest_valid,
+    input  logic                 is_branch_in,
+    input  logic                 is_store_in,
+    input  logic                 is_eret_in,
+    input  logic                 is_svc_in,
+    input  logic                 is_msr_in,
+    input  logic                 is_mrs_in,
+    input  logic                 is_privileged_in,
+    input  logic                 sets_flags_in,
+    input  spr_t                 spr_id_in,
+    input  logic                 first_uop_in,
+    input  logic                 last_uop_in,
+    input  logic [63:0]          pred_target,
+    input  logic                 pred_taken,
 
     // Rename lookup ports for completed ROB values
-    input  logic                 rob_src1_lookup_valid,
-    input  logic [ROB_TAG_W-1:0] rob_src1_lookup_tag,
-    output logic                 rob_src1_lookup_hit_ready,
-    output logic [63:0]          rob_src1_lookup_value,
-    input  logic                 rob_src2_lookup_valid,
-    input  logic [ROB_TAG_W-1:0] rob_src2_lookup_tag,
-    output logic                 rob_src2_lookup_hit_ready,
-    output logic [63:0]          rob_src2_lookup_value,
+    input  logic                 src1_lookup_valid,
+    input  logic [ROB_TAG_W-1:0] src1_lookup_tag,
+    output logic                 src1_lookup_hit_ready,
+    output logic [63:0]          src1_lookup_value,
+    input  logic                 src2_lookup_valid,
+    input  logic [ROB_TAG_W-1:0] src2_lookup_tag,
+    output logic                 src2_lookup_hit_ready,
+    output logic [63:0]          src2_lookup_value,
 
     // Common data bus broadcast
     input  fu_result_t           cdb_result,
 
-    // Commit information consumed by rename
-    output logic                 rob_commit_valid,
-    output logic [ROB_TAG_W-1:0] rob_commit_tag,
-    output logic [4:0]           rob_commit_dest_reg,
-    output logic                 rob_commit_dest_valid,
-    output logic [63:0]          rob_commit_value,
-    output logic                 rob_commit_sets_flags,
-    output logic [63:0]          rob_commit_flags_value,
-
-    // Commit interface
-    output logic                 commit_gpr_we,
+    // ---Commit interface---
+    // writeback to arf
+    output logic                 commit_gpr_valid,
     output logic [4:0]           commit_gpr_rd,
     output logic [63:0]          commit_gpr_value,
     output logic [ROB_TAG_W-1:0] commit_tag,
-    output logic                 commit_spr_we,
+
+    // writeback to special registers
+    output logic                 commit_spr_valid,
     output spr_t                 commit_spr_id,
     output logic [63:0]          commit_spr_value,
+
+    // writeback to flags
+    output logic                 commit_flags_valid,
+    output logic [63:0]          commit_flags_value,
+
+    // lsq commit
     output logic                 commit_store,
     output logic [ROB_TAG_W-1:0] commit_store_tag,
+
+    // exceptions/redirections
     output logic                 commit_redirect,
     output logic [63:0]          commit_redirect_pc,
     output logic                 commit_is_eret,
@@ -121,53 +123,47 @@ module rob #(
                         (head[ROB_TAG_W] != tail[ROB_TAG_W]);
     assign num_entries = tail - head;
 
-    assign rob_tag   = tail_idx;
-    assign rob_ready = !rob_full;
+    assign alloc_tag = tail_idx;
+    assign ready_out = !full;
 
     // rob lookup from rename
     always_comb begin
-        rob_src1_lookup_hit_ready = 1'b0;
-        rob_src1_lookup_value = 64'd0;
-        rob_src2_lookup_hit_ready = 1'b0;
-        rob_src2_lookup_value = 64'd0;
+        src1_lookup_hit_ready = 1'b0;
+        src1_lookup_value = 64'd0;
+        src2_lookup_hit_ready = 1'b0;
+        src2_lookup_value = 64'd0;
 
-        if (rob_src1_lookup_valid) begin
-            if (cdb_result.valid && (cdb_result.tag == rob_src1_lookup_tag)) begin
-                rob_src1_lookup_hit_ready = 1'b1;
-                rob_src1_lookup_value = cdb_result.value;
+        if (src1_lookup_valid) begin
+            if (cdb_result.valid && (cdb_result.tag == src1_lookup_tag)) begin
+                src1_lookup_hit_ready = 1'b1;
+                src1_lookup_value = cdb_result.value;
             end else begin
-                rob_src1_lookup_hit_ready = entries[rob_src1_lookup_tag].ready;
-                rob_src1_lookup_value = entries[rob_src1_lookup_tag].result;
+                src1_lookup_hit_ready = entries[src1_lookup_tag].ready;
+                src1_lookup_value = entries[src1_lookup_tag].result;
             end
         end
 
-        if (rob_src2_lookup_valid) begin
-            if (cdb_result.valid && (cdb_result.tag == rob_src2_lookup_tag)) begin
-                rob_src2_lookup_hit_ready = 1'b1;
-                rob_src2_lookup_value = cdb_result.value;
+        if (src2_lookup_valid) begin
+            if (cdb_result.valid && (cdb_result.tag == src2_lookup_tag)) begin
+                src2_lookup_hit_ready = 1'b1;
+                src2_lookup_value = cdb_result.value;
             end else begin
-                rob_src2_lookup_hit_ready = entries[rob_src2_lookup_tag].ready;
-                rob_src2_lookup_value = entries[rob_src2_lookup_tag].result;
+                src2_lookup_hit_ready = entries[src2_lookup_tag].ready;
+                src2_lookup_value = entries[src2_lookup_tag].result;
             end
         end
     end
 
     always_comb begin
-        rob_commit_valid       = 1'b0;
-        rob_commit_tag         = '0;
-        rob_commit_dest_reg    = '0;
-        rob_commit_dest_valid  = 1'b0;
-        rob_commit_value       = 64'd0;
-        rob_commit_sets_flags  = 1'b0;
-        rob_commit_flags_value = 64'd0;
-
-        commit_gpr_we          = 1'b0;
+        commit_gpr_valid       = 1'b0;
         commit_gpr_rd          = '0;
         commit_gpr_value       = 64'd0;
         commit_tag             = '0;
-        commit_spr_we          = 1'b0;
+        commit_spr_valid       = 1'b0;
         commit_spr_id          = SPR_INVALID;
         commit_spr_value       = 64'd0;
+        commit_flags_valid     = 1'b0;
+        commit_flags_value     = 64'd0;
         commit_store           = 1'b0;
         commit_store_tag       = '0;
         commit_redirect        = 1'b0;
