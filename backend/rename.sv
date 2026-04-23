@@ -291,7 +291,7 @@ module rename #(
                 if (uop.rs1 == 5'd31) begin
                     out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = 64'd0;
-                end else if (!srat_valid[uop.rs1]) begin
+                end else if (!gpr_srat_valid[uop.rs1]) begin
                     // not in srat, can look up in arf
                     out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = gpr_arf[uop.rs1];

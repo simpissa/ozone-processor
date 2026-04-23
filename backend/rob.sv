@@ -100,9 +100,10 @@ module rob #(
         logic        predicted_taken;
         logic        ready;
         logic [63:0] result;
+        logic [3:0]  flags;
+        logic        flags_valid;
         logic        exception;
         logic [3:0]  exception_code;
-        logic        mispredicted;
         logic        valid;
     } rob_entry_t;
 
@@ -184,6 +185,45 @@ module rob #(
 
             for (i = 0; i < ROB_SIZE; i = i + 1)
                 entries[i] <= '{default: '0, spr_id: SPR_INVALID};
+        end else begin
+            if (cdb_result.valid) begin
+                // Branch completions use value as the resolved next PC, so the
+                // ROB only needs the canonical result plus exception/flags state.
+                entries[cdb_result.tag].result         <= cdb_result.value;
+                entries[cdb_result.tag].flags          <= cdb_result.flags;
+                entries[cdb_result.tag].flags_valid    <= cdb_result.flags_valid;
+                entries[cdb_result.tag].ready          <= 1'b1;
+                entries[cdb_result.tag].exception      <= cdb_result.exception;
+                entries[cdb_result.tag].exception_code <= cdb_result.exception_code;
+            end
+
+            // allocate rob entry (from rename)
+            if (alloc_valid && ready_out) begin
+                entries[tail_idx].pc               <= pc_in;
+                entries[tail_idx].arch_rd          <= dest_reg;
+                entries[tail_idx].rd_valid         <= dest_valid;
+                entries[tail_idx].is_branch        <= is_branch_in;
+                entries[tail_idx].is_store         <= is_store_in;
+                entries[tail_idx].is_eret          <= is_eret_in;
+                entries[tail_idx].is_svc           <= is_svc_in;
+                entries[tail_idx].is_msr           <= is_msr_in;
+                entries[tail_idx].is_mrs           <= is_mrs_in;
+                entries[tail_idx].is_privileged    <= is_privileged_in;
+                entries[tail_idx].sets_flags       <= sets_flags_in;
+                entries[tail_idx].spr_id           <= spr_id_in;
+                entries[tail_idx].first_uop        <= first_uop_in;
+                entries[tail_idx].last_uop         <= last_uop_in;
+                entries[tail_idx].predicted_target <= pred_target;
+                entries[tail_idx].predicted_taken  <= pred_taken;
+                entries[tail_idx].ready            <= 1'b0;
+                entries[tail_idx].result           <= 64'd0;
+                entries[tail_idx].flags            <= 4'd0;
+                entries[tail_idx].flags_valid      <= 1'b0;
+                entries[tail_idx].exception        <= 1'b0;
+                entries[tail_idx].exception_code   <= 4'd0;
+                entries[tail_idx].valid            <= 1'b1;
+                tail                               <= tail + 1'b1;
+            end
         end
     end
 
