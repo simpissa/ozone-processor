@@ -56,7 +56,7 @@ module rob #(
 
     // writeback to flags
     output logic                 commit_flags_valid,
-    output logic [63:0]          commit_flags_value,
+    output logic [3:0]           commit_flags_value,
 
     // lsq commit
     output logic                 commit_store,
@@ -77,8 +77,8 @@ module rob #(
 
     output logic                 flush,
     output logic [ROB_TAG_W:0]   num_entries,
-    output logic                 rob_full,
-    output logic                 rob_empty
+    output logic                 full,
+    output logic                 empty
 );
 
     typedef struct packed {
@@ -118,8 +118,8 @@ module rob #(
 
     assign head_idx   = head[ROB_TAG_W-1:0];
     assign tail_idx   = tail[ROB_TAG_W-1:0];
-    assign rob_empty  = (head == tail);
-    assign rob_full   = (head[ROB_TAG_W-1:0] == tail[ROB_TAG_W-1:0]) &&
+    assign empty      = (head == tail);
+    assign full       = (head[ROB_TAG_W-1:0] == tail[ROB_TAG_W-1:0]) &&
                         (head[ROB_TAG_W] != tail[ROB_TAG_W]);
     assign num_entries = tail - head;
 
@@ -163,7 +163,7 @@ module rob #(
         commit_spr_id          = SPR_INVALID;
         commit_spr_value       = 64'd0;
         commit_flags_valid     = 1'b0;
-        commit_flags_value     = 64'd0;
+        commit_flags_value     = '0;
         commit_store           = 1'b0;
         commit_store_tag       = '0;
         commit_redirect        = 1'b0;

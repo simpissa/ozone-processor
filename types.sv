@@ -44,6 +44,7 @@ package types;
     } spr_t; // special purpose register id
 
     localparam int unsigned ROB_TAG_W = 6;
+    localparam int unsigned NUM_SPRS  = 5;
 
     typedef struct packed {
         fu_t          fu_select;      // which functional unit handles this uop
