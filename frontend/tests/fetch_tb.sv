@@ -6,19 +6,11 @@ logic clk_in;
 logic reset;
 logic flush;
 
-/*
-logic exe_valid;
-logic exe_branch;
-logic exe_conditional;
-logic [63:0] exe_pc;
-logic exe_taken;
-*/
 logic [63:0] exe_target;
 
 logic dcode_ready;
 logic [31:0] dcode_instr;
 logic [63:0] dcode_pc;
-logic dcode_el;
 logic dcode_valid;
 
 logic [511:0] imem_rdata;
@@ -27,10 +19,12 @@ logic imem_resp;
 logic imem_req;
 logic [29:0] imem_addr;
 
+logic itlb_ready;
 logic itlb_hit;
 logic [29:0] itlb_paddr;
 logic itlb_miss;
 logic [63:0] itlb_vaddr;
+logic itlb_valid;
 
 logic bp_taken;
 logic [63:0] bp_target;
@@ -41,28 +35,22 @@ fetch #() f (
     .clk(clk_in),
     .reset(reset),
     .flush(flush),
-    /*
-    .exe_valid_i(exe_valid),
-    .exe_branch_i(exe_branch),
-    .exe_conditional_i(exe_conditional),
-    .exe_pc_i(exe_pc),
-    .exe_taken_i(exe_taken),
-    */
     .exe_target_i(exe_target),
     .dcode_ready_i(dcode_ready),
     .dcode_instr_o(dcode_instr),
     .dcode_pc_o(dcode_pc),
-    .dcode_el_o(dcode_el),
     .dcode_valid_o(dcode_valid),
     .imem_rdata_i(imem_rdata),
     .imem_ready_i(imem_ready),
     .imem_valid_i(imem_resp),
     .imem_valid_o(imem_req),
     .imem_addr_o(imem_addr),
+    .itlb_ready_i(itlb_ready),
     .itlb_hit_i(itlb_hit),
     .itlb_paddr_i(itlb_paddr),
     .itlb_miss_i(itlb_miss),
     .itlb_vaddr_o(itlb_vaddr),
+    .itlb_valid_o(itlb_valid),
     .bp_taken_i(bp_taken),
     .bp_target_i(bp_target),
     .bp_valid_o(bp_valid),
@@ -84,6 +72,7 @@ task reset_st;
     imem_rdata = '0;
     imem_ready = 1;
     imem_resp = 0;
+    itlb_ready = 1;
     itlb_hit = 0;
     itlb_miss = 0;
     itlb_paddr = '0;
@@ -221,13 +210,38 @@ task test_tlb_miss;
     reset_st();
 endtask
 
+task test_tlb_ready;
+
+    @(negedge clk_in);
+    @(negedge clk_in);
+    assert(~imem_req);
+    itlb_ready = 1;
+    @(negedge clk_in);
+    assert(itlb_valid);
+    assert(itlb_vaddr == 0);
+    itlb_miss = 0;
+    itlb_hit = 1;
+    @(negedge clk_in);
+    assert(imem_req);
+
+
+    reset_st();
+endtask
+
 initial begin
     reset_st();
     test_reg_out();
+    $display("passed test easy test");
     test_flush();
+    $display("passed flush test");
     test_branch();
+    $display("passed branch test");
     test_offset_read();
+    $display("passed optimized read test");
     test_tlb_miss();
+    $display("passed tlb miss test");
+    test_tlb_ready();
+    $display("passed tlb ready test");
     $display();
     $display("passed all tests");
     $finish();
