@@ -32,6 +32,7 @@ module rename #(
     output logic                 rob_dest_valid,
     output logic [63:0]          rob_pc,
     output logic                 rob_is_branch,
+    output logic                 rob_is_conditional,
     output logic                 rob_is_store,
     output logic                 rob_pred_taken,
     output logic [63:0]          rob_pred_target,
@@ -110,6 +111,7 @@ module rename #(
     assign rob_dest_valid    = uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store;
     assign rob_pc            = pc;
     assign rob_is_branch     = uop.is_branch;
+    assign rob_is_conditional = uop.is_conditional;
     assign rob_is_store      = uop.is_store;
     assign rob_pred_taken    = pred_taken;
     assign rob_pred_target   = pred_target;

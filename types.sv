@@ -64,6 +64,7 @@ package types;
         logic         last_uop;       // last uop of a multi-uop instruction
         logic         is_sequential;  // depends on the previous uop's result
         logic         is_branch;      // instruction is a branch
+        logic         is_conditional; // B.cond
         logic         is_store;       // uop commits through the store path
         logic         is_eret;        // instruction is ERET
         logic         is_msr;         // uop writes an SPR at commit

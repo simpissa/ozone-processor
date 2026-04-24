@@ -19,6 +19,7 @@ module rob #(
     input  logic [4:0]           dest_reg,
     input  logic                 dest_valid,
     input  logic                 is_branch_in,
+    input  logic                 is_conditional_in,
     input  logic                 is_store_in,
     input  logic                 is_eret_in,
     input  logic                 is_svc_in,
@@ -69,13 +70,20 @@ module rob #(
     output logic [ROB_TAG_W-1:0] commit_store_tag,
 
     // exceptions/redirections
-    output logic                 commit_redirect,
-    output logic [63:0]          commit_redirect_pc,
+    output logic [63:0]          redirect_pc, // to fetch; where to start after a flush
     output logic                 commit_is_eret,
     output logic                 commit_is_exception,
     output logic [3:0]           commit_exception_code,
     output logic [63:0]          commit_exception_pc,
     output logic                 commit_terminate,
+
+    // output to branch predictor
+    output logic                 resolveValid,
+    output logic                 resolveIsBranch,
+    output logic                 resolveIsConditional,
+    output logic [63:0]          resolvePC,
+    output logic                 resolveTaken,
+    output logic [63:0]          resolveTarget,
 
     // External SPR state used by future commit-time redirects
     input  logic [63:0]          spr_vbar_el1,
@@ -92,6 +100,7 @@ module rob #(
         logic [4:0]  arch_rd;
         logic        rd_valid;
         logic        is_branch;
+        logic        is_conditional;
         logic        is_store;
         logic        is_eret;
         logic        is_svc;
@@ -196,13 +205,18 @@ module rob #(
         commit_flags_value     = '0;
         commit_store           = 1'b0;
         commit_store_tag       = '0;
-        commit_redirect        = 1'b0;
-        commit_redirect_pc     = 64'd0;
+        redirect_pc            = 64'd0;
         commit_is_eret         = 1'b0;
         commit_is_exception    = 1'b0;
         commit_exception_code  = 4'd0;
         commit_exception_pc    = 64'd0;
         commit_terminate       = 1'b0;
+        resolveValid           = 1'b0;
+        resolveIsBranch        = 1'b0;
+        resolveIsConditional   = 1'b0;
+        resolvePC              = 64'd0;
+        resolveTaken           = 1'b0;
+        resolveTarget          = 64'd0;
         flush                  = 1'b0;
 
         head_n = head;
@@ -236,8 +250,7 @@ module rob #(
                 commit_is_exception   = 1'b1;
                 commit_exception_code = head_entry.exception_code;
                 commit_exception_pc   = head_entry.pc;
-                commit_redirect       = 1'b1;
-                commit_redirect_pc    = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
+                redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
                 flush                 = 1'b1;
             end else begin
                 commit_gpr_valid = head_entry.rd_valid && !head_entry.is_store;
@@ -260,17 +273,24 @@ module rob #(
                                    head_entry.last_uop;
 
                 if (head_branch_mispredict) begin
-                    commit_redirect    = 1'b1;
-                    commit_redirect_pc = head_entry.result;
+                    redirect_pc = head_entry.result;
                     flush              = 1'b1;
                 end
 
                 if (head_eret_redirect) begin
-                    commit_redirect    = 1'b1;
-                    commit_redirect_pc = spr_elr_el1;
+                    redirect_pc    = spr_elr_el1;
                     commit_is_eret     = 1'b1;
                     flush              = 1'b1;
                 end
+            end
+
+            if (head_entry.is_branch && head_entry.last_uop && !head_entry.exception) begin
+                resolveValid         = 1'b1;
+                resolveIsBranch      = 1'b1;
+                resolveIsConditional = head_entry.is_conditional;
+                resolvePC            = head_entry.pc;
+                resolveTaken         = (head_entry.result != (head_entry.pc + 64'd4));
+                resolveTarget        = head_entry.result;
             end
         end
 
@@ -292,6 +312,7 @@ module rob #(
                 entries_n[tail_idx].arch_rd          = dest_reg;
                 entries_n[tail_idx].rd_valid         = dest_valid;
                 entries_n[tail_idx].is_branch        = is_branch_in;
+                entries_n[tail_idx].is_conditional   = is_conditional_in;
                 entries_n[tail_idx].is_store         = is_store_in;
                 entries_n[tail_idx].is_eret          = is_eret_in;
                 entries_n[tail_idx].is_svc           = is_svc_in;

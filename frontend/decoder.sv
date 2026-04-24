@@ -164,6 +164,7 @@ module decoder (
         uop.last_uop       = 1'b1; // default to 1, set to 0 if not
         uop.is_sequential  = 1'b0;
         uop.is_branch      = 1'b0;
+        uop.is_conditional = 1'b0;
         uop.is_store       = 1'b0;
         uop.is_eret        = 1'b0;
         uop.is_msr         = 1'b0;
@@ -418,6 +419,7 @@ module decoder (
 
             I_BCOND: begin
                 uop.is_branch     = 1'b1;
+                uop.is_conditional = 1'b1;
                 uop.cond          = cond_field;
 
                 case (uop_counter)
