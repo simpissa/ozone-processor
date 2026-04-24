@@ -1,14 +1,19 @@
 `timescale 1ns / 1ps
+
+import types::*;
+
 module store_queue #(
     parameter int SQ_SIZE = 8,
-    parameter int AGE_W = 15
+    parameter int ROB_TAG_W = 15
 )(
     input logic rst,           // reset
     input logic clk_in,        // clock
     
     // Interacting with trace
+    /*
     input logic valid_trace,         // input trace is valid
     output logic ready_out,           // ready to receive new input trace
+
     // Data
     input logic [3:0] trace_id,
     input logic [47:0] trace_vaddr,
@@ -16,11 +21,19 @@ module store_queue #(
     input logic trace_value_is_valid,
     input logic [63:0] trace_value,
     input logic resolve,
-    input logic [AGE_W-1:0] age,      // Current age
+    input logic [ROB_TAG_W-1:0] age,      // Current age
+    */
+
+    // replaces traces, essentially
+    input fu_result_t cdb_i,
+    input logic payload_valid_i,
+    input issue_payload_t payload_i,
+    output logic payload_ready_o,
+
 
     // Interacting with read queue
     input logic [47:0] search_addr,
-    input logic [AGE_W-1:0] load_age,      // Age of load
+    input logic [ROB_TAG_W-1:0] load_age,      // Age of load
 
     output logic found, // 1 if address found, 0 if not found
     output logic resolved, // if found: 0 if unresolved, 1 if valid value
@@ -28,7 +41,7 @@ module store_queue #(
 
 
     // Get age of oldest instruction in LQ
-    input logic [AGE_W-1:0] lq_head_age,
+    input logic [ROB_TAG_W-1:0] lq_head_age,
     input logic lq_head_valid,
 
 
@@ -61,7 +74,7 @@ module store_queue #(
         logic trace_vaddr_is_valid;
         logic trace_value_is_valid;
         logic [63:0] trace_value;
-        logic [AGE_W-1:0] age;
+        logic [ROB_TAG_W-1:0] age;
     } st_entry;
 
     st_entry SQ [SQ_SIZE];
@@ -80,8 +93,10 @@ module store_queue #(
         // end
     end
 
-    assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
-    assign receive_new_data = ready_out&valid_trace;
+    //assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
+    //assign receive_new_data = ready_out&trace_valid;
+    assign payload_ready_o = (curr_entries!={SQ_SIZE{1'b1}})|write_new_data;
+    assign receive_new_data = ready_out&payload_valid_i;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
     assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&!curr_unresolved[sq_head];
@@ -97,7 +112,56 @@ module store_queue #(
             sq_head<=0;
             sq_tail<=0;
         end else begin
+            if (cdb_i.valid) begin
+                // resolve values here (possibly)
+                int i;
+                for (i = 0; i < SQ_SIZE; ++i) begin
+                    if (!SQ[i].trace_vaddr_is_valid
+                        && SQ[i].trace_vaddr[ROB_TAG_W-1:0] == cdb_i.tag) begin
+                        SQ[i].trace_vaddr <= cdb_i.value[47:0];
+                        SQ[i].trace_vaddr_is_valid <= 1'b1;
+                    end
+
+                    if (!SQ[i].trace_value_is_valid
+                        && SQ[i].trace_value[ROB_TAG_W-1:0] == cdb_i.tag) begin
+                        SQ[i].trace_value <= cdb_i.value;
+                        SQ[i].trace_vaddr_is_valid <= 1'b1;
+                    end
+                end
+            end
+            
             if(receive_new_data) begin
+                assert(payload_valid_i);
+                assert(payload_i.src1_valid);
+                assert(payload_i.src2_valid);
+                if (payload_i.fu_select == FU_MEM && payload_i.fu_op == OP_STORE) begin
+                    curr_entries[sq_tail] <= 1'b1;
+                    SQ[sq_tail].trace_id <= payload_i.dest_tag; // rob destination
+                    
+                    // for now, i'm going to assume that src1 is addr
+                    // and src2 is value
+                    if (payload_i.src1_ready)
+                        SQ[sq_tail].trace_vaddr <= payload_i.src1_value[47:0];
+                    else
+                        SQ[sq_tail].trace_vaddr <= { (48-ROB_TAG_W){1'b0}, payload_i.src1_tag};
+                        
+                    if (payload_i.src2_ready)
+                        SQ[sq_tail].trace_value <= payload_i.src2_value;
+                    else
+                        SQ[sq_tail].trace_value <= { (64-ROB_TAG_W){1'b0}, payload_i.src2_tag};
+                    SQ[sq_tail].trace_vaddr_is_valid <= payload_i.src1_ready;
+                    SQ[sq_tail].trace_value_is_valid <= payload_i.src2_ready;
+                    SQ[sq_tail].age <= payload_i.dest_tag; // rob dst doubles as age
+                    
+                    sq_tail<=sq_tail+1;
+                    if(sq_tail==0) begin
+                        tailmask <= {{SQ_SIZE-1{1'b0}},1'b1};
+                    end else begin
+                        tailmask[sq_tail] <= 1'b1;
+                    end
+
+                end
+                /*
                 if(resolve) begin
                     if(tag_matching != {SQ_SIZE{1'b0}}) begin
                         logic [$clog2(SQ_SIZE)-1:0] addr;
@@ -133,7 +197,8 @@ module store_queue #(
                     end else begin
                         tailmask[sq_tail] <= 1'b1;
                     end
-                end
+               end
+                */
             end else if(write_new_data) begin
                 curr_entries[sq_head]<=1'b0;
                 sq_head<=sq_head+1;
