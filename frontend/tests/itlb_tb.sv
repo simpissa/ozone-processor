@@ -74,13 +74,11 @@ task test_reg;
     assert(fetch_hit);
     assert(~fetch_miss);
     assert(fetch_ready);
-    $display("hit w %x", fetch_paddr);
 
     reset_st();
 endtask
 
 task test_req_waiting;
-    $display("Beginning test2");
     fetch_vaddr = 10; 
     @(negedge clk);
     assert(fetch_ready);
