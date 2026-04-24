@@ -16,7 +16,9 @@ module rename #(
     // Decoder uop descriptor
     input  uop_t                 uop,
     input  logic [63:0]          pc,
-    input  logic                 el,
+
+    // Architectural EL state, exposed to frontend (iTLB/fetch).
+    output logic                 el_out,
 
     // Rename -> issue output
     output logic                 valid_out,
@@ -48,6 +50,8 @@ module rename #(
     output logic [63:0]          rob_exception_pc,
     output logic                 rob_exception_el,
     output logic                 rob_alloc_self_ready,
+    output logic                 rob_alloc_exception,
+    output logic [3:0]           rob_alloc_exception_code,
     input  logic [ROB_TAG_W-1:0] rob_tag,
     input  logic                 rob_ready,
 
@@ -74,6 +78,10 @@ module rename #(
     input  logic                 rob_commit_exc_esr_valid,
     input  logic [63:0]          rob_commit_exc_esr_value,
 
+    // EL state transitions driven from ROB commit
+    input  logic                 rob_commit_is_exception,
+    input  logic                 rob_commit_is_eret,
+
     // ROB completed-value lookup for source resolution.
     output logic                 rob_src1_lookup_valid,
     output logic [ROB_TAG_W-1:0] rob_src1_lookup_tag,
@@ -93,6 +101,14 @@ module rename #(
     logic [63:0]          gpr_arf [0:NUM_ARCH_REGS-1];
     logic [3:0]           flags_reg;
     logic [63:0]          sprf [0:NUM_SPRS-1];
+
+    // Architectural EL flop. Updated only at commit (exception entry / ERET),
+    // both of which flush the pipeline so no speculative EL is needed.
+    // EL1 = 1'b1, EL0 = 1'b0. Reset enters EL1 per spec.
+    logic                 el_reg;
+
+    // Allocation-time privilege violation detection.
+    logic                 priv_violation;
 
     logic                 gpr_srat_valid [0:NUM_ARCH_REGS-1];
     logic [ROB_TAG_W-1:0] gpr_srat_tag [0:NUM_ARCH_REGS-1];
@@ -135,8 +151,17 @@ module rename #(
     assign rob_sets_flags    = uop.sets_flags;
     assign rob_spr_id        = uop.spr_id;
     assign rob_exception_pc  = uop.is_svc ? (pc + 64'd4) : pc;
-    assign rob_exception_el  = el;
+    assign rob_exception_el  = el_reg;
     assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
+    assign el_out            = el_reg;
+
+    // Privileged uop dispatched while not at EL1 traps at allocation. The uop
+    // never reaches an FU; ROB sees it as a ready exception and handles it
+    // when it reaches the head.
+    assign priv_violation           = uop.is_privileged && (el_reg == 1'b0);
+    assign rob_alloc_exception      = uop.is_svc || priv_violation;
+    assign rob_alloc_exception_code = priv_violation ? EXC_CODE_PRIV
+                                       : (uop.is_svc ? EXC_CODE_SVC : EXC_CODE_NONE);
 
     // Committed GPR/flags/SPR state, speculative rename state, and the
     // sequential-uop latch all live here. Flush clears speculative state only.
@@ -144,6 +169,7 @@ module rename #(
         if (rst) begin
             prev_uop_tag <= '0;
             flags_reg    <= '0;
+            el_reg       <= 1'b1; // reset enters EL1
 
             for (i = 0; i < NUM_ARCH_REGS; i = i + 1) begin
                 gpr_arf[i]        <= 64'd0;
@@ -160,6 +186,14 @@ module rename #(
                 spr_srat_tag[i]   <= '0;
             end
         end else begin
+            // EL transitions at commit. Exception entry forces EL1; ERET
+            // restores the EL bit from the committed SPSR_EL1. Any other
+            // commit leaves EL unchanged.
+            if (rob_commit_is_exception) begin
+                el_reg <= 1'b1;
+            end else if (rob_commit_is_eret) begin
+                el_reg <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][0];
+            end
             if (flush) begin
                 prev_uop_tag <= '0;
 
@@ -299,7 +333,7 @@ module rename #(
                         out_payload.src1_ready = 1'b0;
                     end
                 end
-            end else if ((uop.is_mrs || uop.is_eret) && (uop.spr_id != SPR_INVALID)) begin
+            end else if (uop.is_mrs && (uop.spr_id != SPR_INVALID)) begin
                 out_payload.src1_valid = 1'b1;
 
                 if (!spr_srat_valid[uop.spr_id[SPR_IDX_W-1:0]]) begin

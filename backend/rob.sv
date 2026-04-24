@@ -34,6 +34,10 @@ module rob #(
     input  logic [63:0]          pred_target,
     input  logic                 pred_taken,
     input  logic                 alloc_self_ready, // ready on allocation (nop)
+    // Generic allocation-time exception (covers SVC, EL0 privilege violation,
+    // and future fetch-side faults plumbed in from the frontend).
+    input  logic                 alloc_exception_in,
+    input  logic [3:0]           alloc_exception_code_in,
 
     // Rename lookup ports for completed ROB values
     input  logic                 src1_lookup_valid,
@@ -147,6 +151,7 @@ module rob #(
     rob_entry_t           head_entry;
     logic                 head_can_commit;
     logic                 head_branch_mispredict;
+    logic                 head_branch_to_zero;
     logic                 head_eret_redirect;
     logic [3:0]           head_exception_code;
 
@@ -258,31 +263,40 @@ module rob #(
         head_branch_mispredict = head_entry.is_branch &&
                                  head_entry.last_uop &&
                                  (head_entry.result != head_entry.predicted_target);
+        // Spec hardcoding: the only ifetch fault we need to model is
+        // userspace RET to 0x0 terminating the program. Detect it at branch
+        // resolution and synthesize an Instruction Fetch Memory Abort here
+        // rather than letting fetch try to walk an unmapped page 0.
+        head_branch_to_zero = head_entry.is_branch &&
+                              head_entry.last_uop &&
+                              (head_entry.result == 64'd0);
         head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
-        head_exception_code = (head_entry.exception_code == EXC_CODE_NONE) ? EXC_CODE_SYNC : head_entry.exception_code;
+        head_exception_code = head_branch_to_zero ? EXC_CODE_SYNC :
+                              (head_entry.exception_code == EXC_CODE_NONE) ? EXC_CODE_SYNC : head_entry.exception_code;
 
         // in-order commit
         if (head_can_commit) begin
             commit_tag = head_idx;
 
-            if (head_entry.exception) begin
+            if (head_entry.exception || head_branch_to_zero) begin
                 // ---EXCEPTIONS---
-                /* 
-                On exception 
-                1. save faulting PC to ELR (curr PC + 4 for SVC)
+                /*
+                On exception
+                1. save faulting PC to ELR (curr PC + 4 for SVC,
+                   resolved branch target for synthesized ifetch abort)
                 2. write old PSTATE (currently only EL) to SPSR
                 3. write EXC_CODE_* to ESR 
                 */
                 commit_is_exception   = 1'b1;
                 commit_exception_code = head_exception_code;
-                commit_exception_pc   = head_entry.exception_pc;
+                commit_exception_pc   = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
                 commit_exc_elr_valid  = 1'b1;
-                commit_exc_elr_value  = head_entry.exception_pc;
+                commit_exc_elr_value  = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
                 // Baseline testing stores only the old EL in SPSR_EL1.
                 commit_exc_spsr_valid = 1'b1;
                 commit_exc_spsr_value = {{63{1'b0}}, head_entry.el};
                 commit_exc_esr_valid  = 1'b1;
-                commit_exc_esr_value  = 64'd0;
+                commit_exc_esr_value  = {{60{1'b0}}, head_exception_code};
                 redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
                 flush                 = 1'b1;
             end else begin
@@ -317,7 +331,7 @@ module rob #(
                 end
             end
 
-            if (head_entry.is_branch && head_entry.last_uop && !head_entry.exception) begin
+            if (head_entry.is_branch && head_entry.last_uop && !head_entry.exception && !head_branch_to_zero) begin
                 resolveValid         = 1'b1;
                 resolveIsBranch      = 1'b1;
                 resolveIsConditional = head_entry.is_conditional;
@@ -360,12 +374,12 @@ module rob #(
                 entries_n[tail_idx].last_uop         = last_uop_in;
                 entries_n[tail_idx].predicted_target = pred_target;
                 entries_n[tail_idx].predicted_taken  = pred_taken;
-                entries_n[tail_idx].ready            = alloc_self_ready || is_svc_in;
+                entries_n[tail_idx].ready            = alloc_self_ready || alloc_exception_in;
                 entries_n[tail_idx].result           = 64'd0;
                 entries_n[tail_idx].flags            = 4'd0;
                 entries_n[tail_idx].flags_valid      = 1'b0;
-                entries_n[tail_idx].exception        = is_svc_in;
-                entries_n[tail_idx].exception_code   = is_svc_in ? EXC_CODE_SVC : EXC_CODE_NONE;
+                entries_n[tail_idx].exception        = alloc_exception_in;
+                entries_n[tail_idx].exception_code   = alloc_exception_in ? alloc_exception_code_in : EXC_CODE_NONE;
                 entries_n[tail_idx].valid            = 1'b1;
                 tail_n                               = tail + 1'b1;
             end

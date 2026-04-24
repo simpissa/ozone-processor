@@ -479,25 +479,23 @@ module decoder (
             I_ERET: begin
                 // Arm manual C6.2.87: Exception Return using the ELR and SPSR for the current Exception level. When executed, 
                 //             the PE restores PSTATE from the SPSR, and branches to the address held in the ELR.
-
-                // At commit time, switch privilege and restore
+                //
+                // Macro-op atomicity: both uops are inert FU_NONE NOPs. All
+                // architectural side-effects (PC redirect from ELR_EL1, EL
+                // restore from SPSR_EL1, pipeline flush) happen exactly once,
+                // when the *second* uop reaches the head of the ROB. Rename
+                // and ROB read the committed sprf at that point -- no value
+                // needs to flow through an FU. Splitting into two uops keeps
+                // the macro-op shape from the spec's uOP table.
+                //
+                // Privilege check: is_privileged on the first uop ensures an
+                // EL0 ERET traps at allocation (EXC_CODE_PRIV); the second
+                // uop is squashed by the resulting flush.
                 uop.is_eret       = 1'b1;
                 uop.is_privileged = 1'b1;
-
-                case (uop_counter)
-                    0: begin
-                        uop.fu_select = FU_LOGIC;
-                        uop.fu_op     = OP_MOV;
-                        uop.spr_id    = SPR_ELR_EL1;
-                        uop.last_uop  = 1'b0;
-                    end
-
-                    1: begin
-                        uop.fu_select = FU_LOGIC;
-                        uop.fu_op     = OP_MOV;
-                        uop.spr_id    = SPR_SPSR_EL1;
-                    end
-                endcase
+                uop.fu_select     = FU_NONE;
+                uop.fu_op         = OP_NOP;
+                uop.last_uop      = (uop_counter == 1);
             end
 
             I_MRS: begin

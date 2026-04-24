@@ -127,6 +127,8 @@ always_ff @(posedge clk) begin
             tlb_table[evict_idx].ppn <= pte[29:12];
         end else begin
             // assert 0 for now, but find a way to throw an exception
+            // TODO: im assuming now that the only time a fetch is unmapped is RET to 0x0, so I handle it in the rob
+            //              if theres any test case where this isn't true we'll have to handle that
             assert(0);
         end
         request_pending <= 0;
