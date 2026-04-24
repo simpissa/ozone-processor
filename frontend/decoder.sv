@@ -162,7 +162,8 @@ module decoder (
         uop.sets_flags     = 1'b0;
         uop.first_uop      = (uop_counter == 0);
         uop.last_uop       = 1'b1; // default to 1, set to 0 if not
-        uop.is_sequential  = 1'b0;
+        uop.src1_is_sequential = 1'b0;
+        uop.src2_is_sequential = 1'b0;
         uop.is_branch      = 1'b0;
         uop.is_conditional = 1'b0;
         uop.is_store       = 1'b0;
@@ -188,13 +189,6 @@ module decoder (
                 // AGU + RD
                 case (uop_counter)
                     0: begin
-                        uop.fu_select=FU_MEM;
-                        uop.fu_op=OP_LOAD;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
-                        uop.last_uop=1'b1;
-                    end
-                    1: begin
                         uop.fu_select=FU_AGU;
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
@@ -202,6 +196,13 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_LOAD;
+                        uop.rd=instr[4:0];
+                        uop.r_dest_valid=1'b1;
+                        uop.src1_is_sequential=1'b1;
                     end
                 endcase
             end
@@ -210,14 +211,6 @@ module decoder (
                 // AGU + WR
                 case (uop_counter)
                     0: begin
-                        uop.fu_select=FU_MEM;
-                        uop.fu_op=OP_STORE;
-                        uop.is_store=1'b1;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
-                        uop.last_uop=1'b1;
-                    end
-                    1: begin
                         uop.fu_select=FU_AGU;
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
@@ -225,6 +218,14 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
+                    end
+                    1: begin
+                        uop.fu_select=FU_MEM;
+                        uop.fu_op=OP_STORE;
+                        uop.is_store=1'b1;
+                        uop.rs2=instr[4:0];
+                        uop.rs2_valid=1'b1;
+                        uop.src1_is_sequential=1'b1;
                     end
                 endcase
             end
@@ -239,8 +240,6 @@ module decoder (
                     0: begin
                         uop.fu_select=FU_LOGIC;
                         uop.fu_op=OP_AND;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=instr[4:0];
                         uop.rs1_valid=1'b1;
                         case (instr[22:21])
@@ -257,8 +256,7 @@ module decoder (
                         uop.fu_op=OP_OR;
                         uop.rd=instr[4:0];
                         uop.r_dest_valid=1'b1;
-                        uop.rs1=instr[4:0];
-                        uop.rs1_valid=1'b1;
+                        uop.src1_is_sequential=1'b1;
                         case (instr[22:21])
                             2'b00: uop.imm={{48{1'b0}},instr[20:5]};
                             2'b01: uop.imm={{32{1'b0}},instr[20:5],{16{1'b0}}};
@@ -292,8 +290,6 @@ module decoder (
                     0: begin
                         uop.fu_select=FU_LOGIC;
                         uop.fu_op=OP_AND;
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
                         uop.src1_is_pc=1'b1;
                         uop.imm={{52{1'b1}},{12{1'b0}}};
                         uop.imm_valid=1'b1;
@@ -304,8 +300,7 @@ module decoder (
                         uop.fu_op=OP_ADD;
                         uop.rd=instr[4:0];
                         uop.r_dest_valid=1'b1;
-                        uop.rs1=instr[4:0];
-                        uop.rs1_valid=1'b1;
+                        uop.src1_is_sequential=1'b1;
                         uop.imm={{31{instr[23]}},instr[23:5],instr[30:29],{12{1'b0}}};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b1;
@@ -338,8 +333,6 @@ module decoder (
                             2'b10: uop.fu_op=OP_ASR;
                             // 2'b11 reserved (UNDEF)
                         endcase
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
                         uop.imm={{58{1'b0}},instr[15:10]};
@@ -353,8 +346,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.rs2=instr[4:0];
-                        uop.rs2_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
                         uop.sets_flags=1'b1;
                         uop.last_uop=1'b1;
                     end
@@ -382,8 +374,6 @@ module decoder (
                             2'b10: uop.fu_op=OP_ASR;
                             // 2'b11 reserved (UNDEF)
                         endcase
-                        uop.rd=instr[4:0];
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
                         uop.imm={{58{1'b0}},instr[15:10]};
@@ -397,8 +387,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.rs2=instr[4:0];
-                        uop.rs2_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
                         uop.sets_flags=1'b1;
                         uop.last_uop=1'b1;
                     end
@@ -572,6 +561,7 @@ module decoder (
                   uop.fu_op=OP_LOAD;
                   uop.rd=instr[4:0];
                   uop.r_dest_valid=1'b1;
+                  uop.src1_is_sequential=1'b1;
                 end
               endcase
             end
@@ -592,8 +582,9 @@ module decoder (
                   uop.fu_select=FU_MEM;
                   uop.fu_op=OP_STORE;
                   uop.is_store=1'b1;
-                  uop.rd=instr[4:0];
-                  uop.r_dest_valid=1'b1;
+                  uop.rs2=instr[4:0];
+                  uop.rs2_valid=1'b1;
+                  uop.src1_is_sequential=1'b1;
                 end
               endcase
             end
@@ -669,6 +660,7 @@ module decoder (
             end
 
             I_FSUB: begin
+              // NAN_CHECK + XOR(sign) -> FADD (FADD consumes XOR via is_sequential; commutative)
               case (uop_counter)
                 0: begin
                   uop.fu_select=FU_FPU;
@@ -682,8 +674,6 @@ module decoder (
                 1: begin
                     uop.fu_select=FU_LOGIC;
                     uop.fu_op=OP_XOR;
-                    uop.rd=instr[4:0];
-                    uop.r_dest_valid=1'b1;
                     uop.rs1=RmField;
                     uop.rs1_valid=1'b1;
                     uop.imm=64'h8000_0000_0000_0000;
@@ -695,9 +685,8 @@ module decoder (
                     uop.fu_op=OP_FADD;
                     uop.rd=instr[4:0];
                     uop.r_dest_valid=1'b1;
-                    uop.rs1=Rn_field;
-                    uop.rs1_valid=1'b1;
-                    uop.rs2=instr[4:0];
+                    uop.src1_is_sequential=1'b1;
+                    uop.rs2=Rn_field;
                     uop.rs2_valid=1'b1;
                 end
               endcase

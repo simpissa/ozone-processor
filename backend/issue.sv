@@ -25,7 +25,7 @@ module issue (
     input  logic                 agu_issue_ready,
     output logic                 fpu_issue_valid,
     input  logic                 fpu_issue_ready,
-    output logic                 mem_issue_valid,
+    output logic                 mem_issue_valid, // connected to lsq
     input  logic                 mem_issue_ready
 );
 

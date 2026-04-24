@@ -243,7 +243,7 @@ module rename #(
                 out_payload.src1_valid = 1'b1;
                 out_payload.src1_ready = 1'b1;
                 out_payload.src1_value = pc;
-            end else if (uop.is_sequential) begin
+            end else if (uop.src1_is_sequential) begin
                 out_payload.src1_valid = 1'b1;
                 rob_src1_lookup_valid = 1'b1;
                 rob_src1_lookup_tag   = prev_uop_tag;
@@ -319,7 +319,19 @@ module rename #(
             end
 
             // --- src2 ---
-            if (uop.rs2_valid) begin
+            if (uop.src2_is_sequential) begin
+                out_payload.src2_valid = 1'b1;
+                rob_src2_lookup_valid = 1'b1;
+                rob_src2_lookup_tag   = prev_uop_tag;
+
+                if (rob_src2_lookup_hit_ready) begin
+                    out_payload.src2_ready = 1'b1;
+                    out_payload.src2_value = rob_src2_lookup_value;
+                end else begin
+                    out_payload.src2_tag   = prev_uop_tag;
+                    out_payload.src2_ready = 1'b0;
+                end
+            end else if (uop.rs2_valid) begin
                 out_payload.src2_valid = 1'b1;
 
                 if (uop.rs2 == 5'd31) begin
