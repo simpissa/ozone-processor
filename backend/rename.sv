@@ -20,6 +20,10 @@ module rename #(
     // Architectural EL state, exposed to frontend (iTLB/fetch).
     output logic                 el_out,
 
+    // Current committed NZCV, exposed for ROB to pack into SPSR_EL1 at
+    // exception entry.
+    output logic [3:0]           flags_out,
+
     // Rename -> issue output
     output logic                 valid_out,
     input  logic                 ready_in,
@@ -154,6 +158,7 @@ module rename #(
     assign rob_exception_el  = el_reg;
     assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
     assign el_out            = el_reg;
+    assign flags_out         = flags_reg;
 
     // Privileged uop dispatched while not at EL1 traps at allocation. The uop
     // never reaches an FU; ROB sees it as a ready exception and handles it
@@ -186,13 +191,15 @@ module rename #(
                 spr_srat_tag[i]   <= '0;
             end
         end else begin
-            // EL transitions at commit. Exception entry forces EL1; ERET
-            // restores the EL bit from the committed SPSR_EL1. Any other
-            // commit leaves EL unchanged.
+            // PSTATE transitions at commit. Exception entry forces EL1
+            // (flags are saved into SPSR by ROB, see commit_exc_spsr_value).
+            // ERET restores both EL (bit [0]) and NZCV (bits [31:28]) from
+            // the committed SPSR_EL1. Any other commit leaves PSTATE alone.
             if (rob_commit_is_exception) begin
                 el_reg <= 1'b1;
             end else if (rob_commit_is_eret) begin
-                el_reg <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][0];
+                el_reg    <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][0];
+                flags_reg <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][31:28];
             end
             if (flush) begin
                 prev_uop_tag <= '0;

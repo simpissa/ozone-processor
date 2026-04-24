@@ -101,6 +101,9 @@ module rob #(
     // External SPR state used by future commit-time redirects
     input  logic [63:0]          spr_vbar_el1,
     input  logic [63:0]          spr_elr_el1,
+    // Current committed NZCV from rename, packed into SPSR_EL1 on exception
+    // entry so ERET can restore it.
+    input  logic [3:0]           current_flags_in,
 
     output logic                 flush,
     output logic [ROB_TAG_W:0]   num_entries,
@@ -292,9 +295,10 @@ module rob #(
                 commit_exception_pc   = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
                 commit_exc_elr_valid  = 1'b1;
                 commit_exc_elr_value  = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
-                // Baseline testing stores only the old EL in SPSR_EL1.
+                // Pack NZCV at [31:28] (ARM convention) and old EL at [0].
+                // ERET uses the same layout to restore PSTATE.
                 commit_exc_spsr_valid = 1'b1;
-                commit_exc_spsr_value = {{63{1'b0}}, head_entry.el};
+                commit_exc_spsr_value = {{32{1'b0}}, current_flags_in, {27{1'b0}}, head_entry.el};
                 commit_exc_esr_valid  = 1'b1;
                 commit_exc_esr_value  = {{60{1'b0}}, head_exception_code};
                 redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
