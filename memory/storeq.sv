@@ -4,7 +4,7 @@ import types::*;
 
 module store_queue #(
     parameter int SQ_SIZE = 8,
-    parameter int ROB_TAG_W = 15
+    parameter int ROB_TAG_W = 6
 )(
     input logic rst,           // reset
     input logic clk_in,        // clock
@@ -69,7 +69,8 @@ module store_queue #(
     endfunction
 
     typedef struct packed {
-        logic [3:0] trace_id;
+        //logic [3:0] trace_id;
+        logic [ROB_TAG_W-1:0] trace_id;
         logic [47:0] trace_vaddr;
         logic trace_vaddr_is_valid;
         logic trace_value_is_valid;
@@ -96,7 +97,7 @@ module store_queue #(
     //assign ready_out = (curr_entries!={SQ_SIZE{1'b1}})|resolve|write_new_data;
     //assign receive_new_data = ready_out&trace_valid;
     assign payload_ready_o = (curr_entries!={SQ_SIZE{1'b1}})|write_new_data;
-    assign receive_new_data = ready_out&payload_valid_i;
+    assign receive_new_data = payload_ready_o&payload_valid_i;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
     assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&!curr_unresolved[sq_head];
@@ -143,12 +144,12 @@ module store_queue #(
                     if (payload_i.src1_ready)
                         SQ[sq_tail].trace_vaddr <= payload_i.src1_value[47:0];
                     else
-                        SQ[sq_tail].trace_vaddr <= { (48-ROB_TAG_W){1'b0}, payload_i.src1_tag};
+                        SQ[sq_tail].trace_vaddr <= { {(48-ROB_TAG_W){1'b0}}, payload_i.src1_tag};
                         
                     if (payload_i.src2_ready)
                         SQ[sq_tail].trace_value <= payload_i.src2_value;
                     else
-                        SQ[sq_tail].trace_value <= { (64-ROB_TAG_W){1'b0}, payload_i.src2_tag};
+                        SQ[sq_tail].trace_value <= { {(64-ROB_TAG_W){1'b0}}, payload_i.src2_tag};
                     SQ[sq_tail].trace_vaddr_is_valid <= payload_i.src1_ready;
                     SQ[sq_tail].trace_value_is_valid <= payload_i.src2_ready;
                     SQ[sq_tail].age <= payload_i.dest_tag; // rob dst doubles as age
@@ -220,7 +221,7 @@ module store_queue #(
         assign match_result[i] = older_store_mask[i] & SQ[i].trace_vaddr_is_valid & (SQ[i].trace_vaddr==search_addr);
         assign curr_unresolved[i] = curr_entries[i]&(!SQ[i].trace_vaddr_is_valid|!SQ[i].trace_value_is_valid);
         assign conflict_result[i] = older_store_mask[i] & !SQ[i].trace_vaddr_is_valid;
-        assign tag_matching[i] = curr_entries[i]&(SQ[i].trace_id==trace_id);
+        //assign tag_matching[i] = curr_entries[i]&(SQ[i].trace_id==trace_id);
     end
     endgenerate
 
