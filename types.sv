@@ -34,17 +34,30 @@ package types;
         OP_FCMP
     } fu_op_t; // which op to execute, depends on our fus
 
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         SPR_SP_EL0,
+        SPR_SP_EL1,
         SPR_ELR_EL1,
         SPR_SPSR_EL1,
+        SPR_ESR_EL1,
+        SPR_TTBR0_EL1,
         SPR_VBAR_EL1,
         SPR_ACTLR_EL1,
         SPR_INVALID
     } spr_t; // special purpose register id
 
     localparam int unsigned ROB_TAG_W = 6;
-    localparam int unsigned NUM_SPRS  = 5;
+    localparam int unsigned NUM_SPRS  = 8;
+    localparam int unsigned SPR_IDX_W = 3;
+
+    // Keep the baseline testing flow on a single synchronous vector/code path,
+    // but leave room to distinguish exception classes later.
+    localparam logic [3:0] EXC_CODE_NONE = 4'd0;
+    localparam logic [3:0] EXC_CODE_SYNC = 4'd1;
+    localparam logic [3:0] EXC_CODE_SVC  = 4'd2;
+    localparam logic [3:0] EXC_CODE_PRIV = 4'd3;
+    localparam logic [3:0] EXC_CODE_DATA = 4'd4;
+    localparam logic [3:0] EXC_CODE_FP   = 4'd5;
 
     typedef struct packed {
         fu_t          fu_select;      // which functional unit handles this uop
@@ -99,8 +112,8 @@ package types;
         logic [63:0]        value;          // GPR result or resolved next PC for branches
         logic [3:0]         flags;
         logic               flags_valid;
-        logic               exception;      // set just by mem I think? 
-        logic [3:0]         exception_code; 
+        logic               exception;      // fu exceptions can happen in mem and fpu; other exceptions are detected at commit-time in the rob
+        logic [3:0]         exception_code; // on exception set this to corresponding EXC_CODE_*
     } fu_result_t; // output of FUs (same for everyone); leave unused fields as 0
 
 endpackage

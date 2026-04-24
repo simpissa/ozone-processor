@@ -78,17 +78,23 @@ module decoder (
 
 
     // special registers
-    localparam logic [15:0] SYSREG_SP_EL0    = {2'b11, 3'b000, 4'b0100, 4'b0001, 3'b000};
-    localparam logic [15:0] SYSREG_ELR_EL1   = {2'b11, 3'b000, 4'b0100, 4'b0000, 3'b001};
-    localparam logic [15:0] SYSREG_SPSR_EL1  = {2'b11, 3'b000, 4'b0100, 4'b0000, 3'b000};
-    localparam logic [15:0] SYSREG_VBAR_EL1  = {2'b11, 3'b000, 4'b1100, 4'b0000, 3'b000};
-    localparam logic [15:0] SYSREG_ACTLR_EL1 = {2'b11, 3'b000, 4'b0001, 4'b0000, 3'b001};
+    localparam logic [15:0] SYSREG_SP_EL0    = 16'hC208;
+    localparam logic [15:0] SYSREG_SP_EL1    = 16'hE208;
+    localparam logic [15:0] SYSREG_ELR_EL1   = 16'hC201;
+    localparam logic [15:0] SYSREG_SPSR_EL1  = 16'hC200;
+    localparam logic [15:0] SYSREG_ESR_EL1   = 16'hC290;
+    localparam logic [15:0] SYSREG_TTBR0_EL1 = 16'hC100;
+    localparam logic [15:0] SYSREG_VBAR_EL1  = 16'hC600;
+    localparam logic [15:0] SYSREG_ACTLR_EL1 = 16'hC081;
     always_comb begin
         decoded_spr_id = SPR_INVALID;
         case (imm16)
             SYSREG_SP_EL0:    decoded_spr_id = SPR_SP_EL0;
+            SYSREG_SP_EL1:    decoded_spr_id = SPR_SP_EL1;
             SYSREG_ELR_EL1:   decoded_spr_id = SPR_ELR_EL1;
             SYSREG_SPSR_EL1:  decoded_spr_id = SPR_SPSR_EL1;
+            SYSREG_ESR_EL1:   decoded_spr_id = SPR_ESR_EL1;
+            SYSREG_TTBR0_EL1: decoded_spr_id = SPR_TTBR0_EL1;
             SYSREG_VBAR_EL1:  decoded_spr_id = SPR_VBAR_EL1;
             SYSREG_ACTLR_EL1: decoded_spr_id = SPR_ACTLR_EL1;
             default:          decoded_spr_id = SPR_INVALID;

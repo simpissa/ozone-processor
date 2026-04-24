@@ -4,9 +4,8 @@ import types::*;
 
 module rob #(
     parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W),
-    parameter logic [63:0] SYNC_EXCEPTION_OFFSET = 64'd0,
+    parameter logic [63:0] SYNC_EXCEPTION_OFFSET = 64'd1024,
     parameter logic [63:0] TERMINATE_VALUE = 64'hFFFF_FFFF_FFFF_FFFF,
-    parameter logic [3:0]  SVC_EXCEPTION_CODE = 4'd1
 ) (
     input  logic                 clk,
     input  logic                 rst,
@@ -28,6 +27,8 @@ module rob #(
     input  logic                 is_privileged_in,
     input  logic                 sets_flags_in,
     input  spr_t                 spr_id_in,
+    input  logic [63:0]          exception_pc_in,
+    input  logic                 exception_el_in,
     input  logic                 first_uop_in,
     input  logic                 last_uop_in,
     input  logic [63:0]          pred_target,
@@ -60,6 +61,14 @@ module rob #(
     output logic                 commit_spr_valid,
     output spr_t                 commit_spr_id,
     output logic [63:0]          commit_spr_value,
+
+    // exception-time spr writes
+    output logic                 commit_exc_elr_valid,
+    output logic [63:0]          commit_exc_elr_value,
+    output logic                 commit_exc_spsr_valid,
+    output logic [63:0]          commit_exc_spsr_value,
+    output logic                 commit_exc_esr_valid,
+    output logic [63:0]          commit_exc_esr_value,
 
     // writeback to flags
     output logic                 commit_flags_valid,
@@ -97,7 +106,9 @@ module rob #(
 
     typedef struct packed {
         logic [63:0] pc;
+        logic [63:0] exception_pc;
         logic [4:0]  arch_rd;
+        logic        el;
         logic        rd_valid;
         logic        is_branch;
         logic        is_conditional;
@@ -137,6 +148,7 @@ module rob #(
     logic                 head_can_commit;
     logic                 head_branch_mispredict;
     logic                 head_eret_redirect;
+    logic [3:0]           head_exception_code;
 
     assign head_idx   = head[ROB_TAG_W-1:0];
     assign tail_idx   = tail[ROB_TAG_W-1:0];
@@ -201,6 +213,12 @@ module rob #(
         commit_spr_valid       = 1'b0;
         commit_spr_id          = SPR_INVALID;
         commit_spr_value       = 64'd0;
+        commit_exc_elr_valid   = 1'b0;
+        commit_exc_elr_value   = 64'd0;
+        commit_exc_spsr_valid  = 1'b0;
+        commit_exc_spsr_value  = 64'd0;
+        commit_exc_esr_valid   = 1'b0;
+        commit_exc_esr_value   = 64'd0;
         commit_flags_valid     = 1'b0;
         commit_flags_value     = '0;
         commit_store           = 1'b0;
@@ -208,7 +226,7 @@ module rob #(
         redirect_pc            = 64'd0;
         commit_is_eret         = 1'b0;
         commit_is_exception    = 1'b0;
-        commit_exception_code  = 4'd0;
+        commit_exception_code  = EXC_CODE_NONE;
         commit_exception_pc    = 64'd0;
         commit_terminate       = 1'b0;
         resolveValid           = 1'b0;
@@ -241,15 +259,30 @@ module rob #(
                                  head_entry.last_uop &&
                                  (head_entry.result != head_entry.predicted_target);
         head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
+        head_exception_code = (head_entry.exception_code == EXC_CODE_NONE) ? EXC_CODE_SYNC : head_entry.exception_code;
 
         // in-order commit
         if (head_can_commit) begin
             commit_tag = head_idx;
 
             if (head_entry.exception) begin
+                // ---EXCEPTIONS---
+                /* 
+                On exception 
+                1. save faulting PC to ELR (curr PC + 4 for SVC)
+                2. write old PSTATE (currently only EL) to SPSR
+                3. write EXC_CODE_* to ESR 
+                */
                 commit_is_exception   = 1'b1;
-                commit_exception_code = head_entry.exception_code;
-                commit_exception_pc   = head_entry.pc;
+                commit_exception_code = head_exception_code;
+                commit_exception_pc   = head_entry.exception_pc;
+                commit_exc_elr_valid  = 1'b1;
+                commit_exc_elr_value  = head_entry.exception_pc;
+                // Baseline testing stores only the old EL in SPSR_EL1.
+                commit_exc_spsr_valid = 1'b1;
+                commit_exc_spsr_value = {{63{1'b0}}, head_entry.el};
+                commit_exc_esr_valid  = 1'b1;
+                commit_exc_esr_value  = 64'd0;
                 redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
                 flush                 = 1'b1;
             end else begin
@@ -309,7 +342,9 @@ module rob #(
             // target the same slot in a tiny/full-wrap ROB scenario.
             if (alloc_valid && ready_out) begin
                 entries_n[tail_idx].pc               = pc_in;
+                entries_n[tail_idx].exception_pc     = exception_pc_in;
                 entries_n[tail_idx].arch_rd          = dest_reg;
+                entries_n[tail_idx].el               = exception_el_in;
                 entries_n[tail_idx].rd_valid         = dest_valid;
                 entries_n[tail_idx].is_branch        = is_branch_in;
                 entries_n[tail_idx].is_conditional   = is_conditional_in;
@@ -330,7 +365,7 @@ module rob #(
                 entries_n[tail_idx].flags            = 4'd0;
                 entries_n[tail_idx].flags_valid      = 1'b0;
                 entries_n[tail_idx].exception        = is_svc_in;
-                entries_n[tail_idx].exception_code   = is_svc_in ? SVC_EXCEPTION_CODE : 4'd0;
+                entries_n[tail_idx].exception_code   = is_svc_in ? EXC_CODE_SVC : EXC_CODE_NONE;
                 entries_n[tail_idx].valid            = 1'b1;
                 tail_n                               = tail + 1'b1;
             end

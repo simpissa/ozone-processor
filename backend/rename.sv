@@ -45,6 +45,8 @@ module rename #(
     output logic                 rob_is_svc,
     output logic                 rob_sets_flags,
     output spr_t                 rob_spr_id,
+    output logic [63:0]          rob_exception_pc,
+    output logic                 rob_exception_el,
     output logic                 rob_alloc_self_ready,
     input  logic [ROB_TAG_W-1:0] rob_tag,
     input  logic                 rob_ready,
@@ -63,6 +65,14 @@ module rename #(
     input  logic                 rob_commit_spr_valid,
     input  spr_t                 rob_commit_spr_id,
     input  logic [63:0]          rob_commit_spr_value,
+
+    // exception-time spr writes
+    input  logic                 rob_commit_exc_elr_valid,
+    input  logic [63:0]          rob_commit_exc_elr_value,
+    input  logic                 rob_commit_exc_spsr_valid,
+    input  logic [63:0]          rob_commit_exc_spsr_value,
+    input  logic                 rob_commit_exc_esr_valid,
+    input  logic [63:0]          rob_commit_exc_esr_value,
 
     // ROB completed-value lookup for source resolution.
     output logic                 rob_src1_lookup_valid,
@@ -124,6 +134,8 @@ module rename #(
     assign rob_is_svc        = uop.is_svc;
     assign rob_sets_flags    = uop.sets_flags;
     assign rob_spr_id        = uop.spr_id;
+    assign rob_exception_pc  = uop.is_svc ? (pc + 64'd4) : pc;
+    assign rob_exception_el  = el;
     assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
 
     // Committed GPR/flags/SPR state, speculative rename state, and the
@@ -189,12 +201,24 @@ module rename #(
 
             // rob commit, update sprs
             if (rob_commit_spr_valid && (rob_commit_spr_id != SPR_INVALID)) begin
-                sprf[rob_commit_spr_id] <= rob_commit_spr_value;
+                sprf[rob_commit_spr_id[SPR_IDX_W-1:0]] <= rob_commit_spr_value;
 
-                if (spr_srat_valid[rob_commit_spr_id] && (spr_srat_tag[rob_commit_spr_id] == rob_commit_tag)) begin
-                    spr_srat_valid[rob_commit_spr_id] <= 1'b0;
-                    spr_srat_tag[rob_commit_spr_id]   <= '0;
+                if (spr_srat_valid[rob_commit_spr_id[SPR_IDX_W-1:0]] && (spr_srat_tag[rob_commit_spr_id[SPR_IDX_W-1:0]] == rob_commit_tag)) begin
+                    spr_srat_valid[rob_commit_spr_id[SPR_IDX_W-1:0]] <= 1'b0;
+                    spr_srat_tag[rob_commit_spr_id[SPR_IDX_W-1:0]]   <= '0;
                 end
+            end
+
+            if (rob_commit_exc_elr_valid) begin
+                sprf[SPR_ELR_EL1[SPR_IDX_W-1:0]] <= rob_commit_exc_elr_value;
+            end
+
+            if (rob_commit_exc_spsr_valid) begin
+                sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]] <= rob_commit_exc_spsr_value;
+            end
+
+            if (rob_commit_exc_esr_valid) begin
+                sprf[SPR_ESR_EL1[SPR_IDX_W-1:0]] <= rob_commit_exc_esr_value;
             end
 
             if (rename_fire) begin
@@ -211,8 +235,8 @@ module rename #(
                 end
 
                 if (uop.is_msr && (uop.spr_id != SPR_INVALID)) begin
-                    spr_srat_valid[uop.spr_id] <= 1'b1;
-                    spr_srat_tag[uop.spr_id]   <= rob_tag;
+                    spr_srat_valid[uop.spr_id[SPR_IDX_W-1:0]] <= 1'b1;
+                    spr_srat_tag[uop.spr_id[SPR_IDX_W-1:0]]   <= rob_tag;
                 end
             end
         end
@@ -278,18 +302,18 @@ module rename #(
             end else if ((uop.is_mrs || uop.is_eret) && (uop.spr_id != SPR_INVALID)) begin
                 out_payload.src1_valid = 1'b1;
 
-                if (!spr_srat_valid[uop.spr_id]) begin
+                if (!spr_srat_valid[uop.spr_id[SPR_IDX_W-1:0]]) begin
                     out_payload.src1_ready = 1'b1;
-                    out_payload.src1_value = sprf[uop.spr_id];
+                    out_payload.src1_value = sprf[uop.spr_id[SPR_IDX_W-1:0]];
                 end else begin
                     rob_src1_lookup_valid = 1'b1;
-                    rob_src1_lookup_tag   = spr_srat_tag[uop.spr_id];
+                    rob_src1_lookup_tag   = spr_srat_tag[uop.spr_id[SPR_IDX_W-1:0]];
 
                     if (rob_src1_lookup_hit_ready) begin
                         out_payload.src1_ready = 1'b1;
                         out_payload.src1_value = rob_src1_lookup_value;
                     end else begin
-                        out_payload.src1_tag   = spr_srat_tag[uop.spr_id];
+                        out_payload.src1_tag   = spr_srat_tag[uop.spr_id[SPR_IDX_W-1:0]];
                         out_payload.src1_ready = 1'b0;
                     end
                 end
