@@ -280,6 +280,7 @@ always_ff @(posedge clk) begin
                 l1_req_valid <= 1;
                 issue_cache  <= 1;
                 issue_storeq <= 0;
+                sq_query_valid <= 0;
                 // if (DBG)
                 //     $display("Loadq Status: request sent to l1");
             end
@@ -300,8 +301,6 @@ always_ff @(posedge clk) begin
             sq_query_valid <= 0;
 
         end
-
-        sq_query_valid <= 0;
 
     end
 

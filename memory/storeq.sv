@@ -93,9 +93,6 @@ module store_queue #(
 
     logic [SQ_SIZE-1:0] tailmask;
     always_ff @(posedge clk_in) begin
-        // if (write_new_data) begin
-        //     $display("Storeq status: querying l1. at vaddr 0x%012h %08b %08b %b %b\n", write_vaddr,curr_entries,lq_head_age,lq_head_valid,curr_unresolved[sq_head]);
-        // end
         if(rst) begin
             sq_head<=0;
             sq_tail<=0;
@@ -109,10 +106,10 @@ module store_queue #(
                         addr=result[$clog2(SQ_SIZE)-1:0];
                         if(trace_vaddr_is_valid) begin
                             SQ[addr].trace_vaddr<=trace_vaddr;
-                            SQ[addr].trace_vaddr_is_valid<=trace_vaddr_is_valid;
+                            SQ[addr].trace_vaddr_is_valid<=1'b1;
                         end
                         if(trace_value_is_valid) begin
-                            SQ[addr].trace_value_is_valid<=trace_value_is_valid;
+                            SQ[addr].trace_value_is_valid<=1'b1;
                             SQ[addr].trace_value<=trace_value;
                         end
                     end
@@ -145,6 +142,8 @@ module store_queue #(
     end
 
     logic [SQ_SIZE-1:0] curr_unresolved;
+    logic [SQ_SIZE-1:0] older_store_mask;
+    logic [SQ_SIZE-1:0] conflict_result;
     logic [SQ_SIZE-1:0] current_store_mask;
     logic [SQ_SIZE-1:0] curr_entries;
     logic [SQ_SIZE-1:0] match_result;
@@ -152,13 +151,15 @@ module store_queue #(
     genvar i;
     generate
     for (i=0;i<SQ_SIZE;i++) begin: match_addresses
-        assign match_result[i] = curr_entries[i]&&(load_age-SQ[i].age<16)&&(SQ[i].trace_vaddr==search_addr);
-        assign curr_unresolved[i] = curr_entries[i]&&(!SQ[i].trace_vaddr_is_valid||!SQ[i].trace_value_is_valid);
-        assign tag_matching[i] = curr_entries[i]&&(SQ[i].trace_id==trace_id);
+        assign older_store_mask[i] = curr_entries[i] & (load_age-SQ[i].age<16);
+        assign match_result[i] = older_store_mask[i] & SQ[i].trace_vaddr_is_valid & (SQ[i].trace_vaddr==search_addr);
+        assign curr_unresolved[i] = curr_entries[i]&(!SQ[i].trace_vaddr_is_valid|!SQ[i].trace_value_is_valid);
+        assign conflict_result[i] = older_store_mask[i] & !SQ[i].trace_vaddr_is_valid;
+        assign tag_matching[i] = curr_entries[i]&(SQ[i].trace_id==trace_id);
     end
     endgenerate
 
-    assign current_store_mask = match_result|curr_unresolved;
+    assign current_store_mask = match_result | conflict_result;
     always_comb begin
         logic [$clog2(SQ_SIZE)-1:0] value_index;
         int result;
@@ -174,7 +175,7 @@ module store_queue #(
                 end
             end
             value_index=result[$clog2(SQ_SIZE)-1:0];
-            resolved = !curr_unresolved[value_index];
+            resolved = match_result[value_index] & !curr_unresolved[value_index];
             search_value = SQ[value_index].trace_value;
         end else begin
             value_index=0;

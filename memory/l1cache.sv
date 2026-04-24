@@ -103,6 +103,9 @@ module l1cache #(
 
   data_arr_set[NUM_SETS-1:0] data_arr;
   tag_arr_set[NUM_SETS-1:0] tag_arr;
+  logic wb_pending;
+  logic [PADDR_W-$clog2(BLOCK_SIZE)-1:0] wb_paddr;
+  logic [BLOCK_SIZE*8-1:0] wb_data;
 
   // task print_cache;
   //   $display("<------------------------------------ INTERNAL CACHE STATE ------------------------------------->\n");
@@ -241,9 +244,9 @@ module l1cache #(
       stage2.block_offset <= block_offset;
       stage2.vaddr <= tlb_vaddr_out;
       stage2.store_data <= store_data;
-      stage2.valid <= is_valid;
-      stage2.is_store <= storeValid;
-      if(storeValid) begin
+      stage2.valid <= load_received | store_received;
+      stage2.is_store <= store_received;
+      if(store_received) begin
         stage2.instr_id <= store_id;
       end else begin
         stage2.instr_id <= load_id;
@@ -273,9 +276,30 @@ module l1cache #(
   logic[63:0] data_sel;
   logic[$clog2(NUM_WAYS)-1:0] way_index;
   logic miss;
+  logic stage3_miss_sent;
+  logic [PADDR_W-1:0] tlb_paddr_hold;
+  logic tlb_paddr_hold_valid;
+  logic [PADDR_W-1:0] stage2_tlb_paddr;
+  logic stage2_tlb_ready;
 
-  assign paddr_tag = tlb_paddr_in[PADDR_W-1:$clog2(NUM_SETS) + $clog2(BLOCK_SIZE)];
-  assign stage2_blocked = (~tlb_paddr_ready & stage2.valid) | stage3_blocked;
+  assign stage2_tlb_paddr = tlb_paddr_hold_valid ? tlb_paddr_hold : tlb_paddr_in;
+  assign stage2_tlb_ready = tlb_paddr_hold_valid | tlb_paddr_ready;
+  assign paddr_tag = stage2_tlb_paddr[PADDR_W-1:$clog2(NUM_SETS) + $clog2(BLOCK_SIZE)];
+  assign stage2_blocked = (~stage2_tlb_ready & stage2.valid) | stage3_blocked;
+
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      tlb_paddr_hold <= '0;
+      tlb_paddr_hold_valid <= 1'b0;
+    end else begin
+      if (tlb_paddr_ready & stage2.valid & stage3_blocked) begin
+        tlb_paddr_hold <= tlb_paddr_in;
+        tlb_paddr_hold_valid <= 1'b1;
+      end else if (tlb_paddr_hold_valid & ~stage3_blocked & stage2.valid) begin
+        tlb_paddr_hold_valid <= 1'b0;
+      end
+    end
+  end
 
   always_comb begin
     // if(DBG) 
@@ -305,6 +329,7 @@ module l1cache #(
   always_ff @(posedge clk) begin
     if(reset) begin
       stage3 <= '0;
+      stage3_miss_sent <= 1'b0;
     end else if((~stage2_blocked) & (~stage3_blocked)) begin
         // if (DBG) begin
         //     $display("\nL1 Status: Propagating stage II values & data/tag values into stage III.");
@@ -329,24 +354,30 @@ module l1cache #(
       stage3.vaddr <= stage2.vaddr;
       stage3.store_data <= stage2.store_data;
       stage3.miss <= miss;
-      stage3.paddr <= tlb_paddr_in;
+      stage3.paddr <= stage2_tlb_paddr;
       stage3.valid <= stage2.valid;
       stage3.is_store <= stage2.is_store;
       stage3.way_store_index <= way_index;
       stage3.set_index <= stage2.set_index;
       stage3.block_offset <= stage2.block_offset;
       stage3.instr_id <= stage2.instr_id;
+      stage3_miss_sent <= 1'b0;
+    end else if(stage3_miss_can_enqueue) begin
+      stage3_miss_sent <= 1'b1;
     end else begin
       // stage3.valid <= 1'b0;
     end
   end
 
   logic mshr_should_stall;  // mshr full or busy
+  logic mshr_match_found;
+  logic mshr_enqueue;
   logic[ID_LENGTH-1:0] mshr_id; // id for instruciton being fulfilled
   logic mshr_out_valid; // If outputs are valid
   logic mshr_is_store_out;
   logic mshr_should_inform_l2; // Tell the mshr to inform l2 about request once it is available again
   logic mshr_l2_req_valid;
+  logic mshr_l2_req_accepted;
   logic[ID_LENGTH-1:0] mshr_l2_req_id;
   logic[PADDR_W-$clog2(BLOCK_SIZE)-1:0] mshr_l2_req_paddr;
   logic mshr_l2_req_is_store;
@@ -367,9 +398,11 @@ module l1cache #(
           .clk(clk),
           .reset(reset),
           .store_data(stage3.store_data),
+          .enqueue(mshr_enqueue),
           .paddr(stage3.paddr),
           .id_in(stage3.instr_id),
           .should_inform_l2(mshr_should_inform_l2),
+          .clear_l2_pending(mshr_l2_req_accepted),
           .is_l2_ready(l2_ready_for_req),
           .miss(stage3.miss),
           .valid(stage3.valid),
@@ -377,6 +410,7 @@ module l1cache #(
           .l2_paddr(l2_paddr),
           .l2_way_stored(way_evicted),
           .is_store(stage3.is_store),
+          .match_found(mshr_match_found),
           .stall(mshr_should_stall),
           .id_out(mshr_id),
           .write_out(mshr_data_out),
@@ -395,6 +429,9 @@ module l1cache #(
   logic [ID_LENGTH-1:0] id_instr_completed;
   logic instr_complete_is_store;
   logic stage3_curr_valid;
+  logic stage3_miss_can_enqueue;
+  logic stage3_issue_l2_req;
+  logic stage3_sent_l2_req;
 
   always_comb begin
     store_finished = 1'b0;
@@ -411,13 +448,18 @@ module l1cache #(
     l2_req_rw = 1'b0;
     
     stage3_curr_valid = stage3.valid;
+    stage3_miss_can_enqueue = stage3.valid & stage3.miss & ~mshr_should_stall & ~stage3_miss_sent;
+    mshr_enqueue = stage3_miss_can_enqueue;
+    mshr_l2_req_accepted = ~wb_pending & mshr_l2_req_valid;
+    stage3_issue_l2_req = 1'b0;
+    stage3_sent_l2_req = 1'b0;
     // Tells the mshr that this entry should look out for when l2 can take a request
-    mshr_should_inform_l2 = ~l2_ready_for_req & stage3.valid & stage3_curr_valid & stage3.miss;
+    mshr_should_inform_l2 = stage3_miss_can_enqueue & ~mshr_match_found;
 
-    l2_full_block = (mshr_l2_req_valid &  ~(stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)] == mshr_l2_req_paddr) & stage3.valid & stage3.miss);
+    l2_full_block = (mshr_l2_req_valid &  ~(stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)] == mshr_l2_req_paddr) & stage3.valid & stage3.miss & ~stage3_miss_sent);
     mshr_full_block = mshr_out_valid | mshr_should_stall;
     
-    stage3_blocked = mshr_full_block | l2_full_block;
+    stage3_blocked = mshr_full_block | l2_full_block | (wb_pending & ~l2_ready_for_req);
     // if (DBG)
     //     $display("MSHR Stall: %b, MSHR_V: %b, MSHR_REQ_V: %b, MSHR_REQ_ADDR: %x", mshr_should_stall, mshr_out_valid, mshr_l2_req_valid, mshr_l2_req_paddr);
     if(mshr_out_valid) begin
@@ -445,11 +487,11 @@ module l1cache #(
       end
     end 
 
-    // Output line if dirty to update l2
-    if(l2_resp_valid & tag_arr[l2_paddr_set].valid[way_evicted] & tag_arr[l2_paddr_set].dirty[way_evicted]) begin
+    if(wb_pending & l2_ready_for_req & ~stage3_issue_l2_req) begin
       l2_req_valid = 1'b1;
       l2_req_rw = 1'b1;
-      l2_req_data = data_arr[l2_paddr_set].data[way_evicted];
+      l2_req_paddr = wb_paddr;
+      l2_req_data = wb_data;
     end else if(mshr_l2_req_valid) begin 
       // MSHR modules auto handle the miss, l2 should be sent required miss data
       l2_req_valid = 1'b1;
@@ -457,13 +499,6 @@ module l1cache #(
       l2_query_id = mshr_l2_req_id;
       // if (DBG)
       //     $display("OUTPUTTING TO L2 THROUGH MSHR");
-    end else if(stage3.valid & l2_ready_for_req) begin 
-      // MSHR modules auto handle the miss, l2 should be sent required miss data
-      l2_req_valid = 1'b1;
-      l2_req_paddr = stage3.paddr[PADDR_W-1:$clog2(BLOCK_SIZE)];
-      l2_query_id = stage3.instr_id;
-      // if (DBG)
-      //     $display("OUTPUTTING TO L2 THROUGH PIPE");
     end else begin
       // Presumably output invalid
       if(stage3.valid) begin
@@ -491,28 +526,43 @@ module l1cache #(
     if(reset) begin
       // data_arr <= '0;
       tag_arr <= '0;
-    end else if(mshr_out_valid & mshr_is_store_out) begin
-      data_arr[mshr_set].data[mshr_way][mshr_offset*8 +: 64] <= mshr_data_out;
-    end else if(l2_resp_valid) begin
-      // Bring in the data into the cache, have seperate logic for outputting instrs
-      // from mshr
-      // lru way 0, evict and make 1 lru
-      if(way_evicted == 1'b0) begin
-        tag_arr[l2_paddr_set].lru <= 1'b1;
-      end else begin        
-        tag_arr[l2_paddr_set].lru <= 1'b0;
+      wb_pending <= 1'b0;
+      wb_paddr <= '0;
+      wb_data <= '0;
+    end else begin
+      if(wb_pending & l2_ready_for_req & ~stage3_issue_l2_req) begin
+        wb_pending <= 1'b0;
       end
-      // Store l2 data in cache and set to clean and valid
-      data_arr[l2_paddr_set].data[way_evicted] <= l2_resp_data;
-      tag_arr[l2_paddr_set].data[way_evicted] <= l2_paddr_tag;
-      tag_arr[l2_paddr_set].dirty[way_evicted] <= 1'b0;
-      tag_arr[l2_paddr_set].valid[way_evicted] <= 1'b1;
-    end else if(stage3.valid & ~stage3.miss) begin
-      if(stage3.is_store) begin
-          data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
-          tag_arr[stage3.set_index].dirty[stage3.way_store_index] <= 1'b1;
+
+      if(l2_resp_valid) begin
+        if(tag_arr[l2_paddr_set].valid[way_evicted] & tag_arr[l2_paddr_set].dirty[way_evicted]) begin
+          wb_pending <= 1'b1;
+          wb_paddr <= {tag_arr[l2_paddr_set].data[way_evicted], l2_paddr_set};
+          wb_data <= data_arr[l2_paddr_set].data[way_evicted];
+        end
+
+        data_arr[l2_paddr_set].data[way_evicted] <= l2_resp_data;
+        tag_arr[l2_paddr_set].data[way_evicted] <= l2_paddr_tag;
+        tag_arr[l2_paddr_set].dirty[way_evicted] <= 1'b0;
+        tag_arr[l2_paddr_set].valid[way_evicted] <= 1'b1;
+        tag_arr[l2_paddr_set].lru <= ~way_evicted;
       end
-        tag_arr[stage3.set_index].lru <= ~tag_arr[stage3.set_index].lru;
+
+      if(mshr_out_valid & mshr_is_store_out) begin
+        data_arr[mshr_set].data[mshr_way][mshr_offset*8 +: 64] <= mshr_data_out;
+        tag_arr[mshr_set].dirty[mshr_way] <= 1'b1;
+      end
+
+      if(~l2_resp_valid & ~(mshr_out_valid & mshr_is_store_out)) begin
+        if(stage3.valid & ~stage3.miss) begin
+          if(stage3.is_store) begin
+            data_arr[stage3.set_index].data[stage3.way_store_index][stage3.block_offset*8+:64] <= stage3.store_data;
+            tag_arr[stage3.set_index].dirty[stage3.way_store_index] <= 1'b1;
+          end
+
+          tag_arr[stage3.set_index].lru <= ~stage3.way_store_index;
+        end
+      end
     end
   end
 endmodule
@@ -533,9 +583,11 @@ module mshr#(
   input logic clk,
   input logic reset,
   input logic[DATA_SIZE-1:0] store_data,
+  input logic enqueue,
   input logic[PADDR_W-1:0] paddr,
   input logic[ID_SIZE-1:0] id_in,
   input logic should_inform_l2,
+  input logic clear_l2_pending,
   input logic is_l2_ready,
   input logic miss,
   input logic valid,
@@ -544,6 +596,7 @@ module mshr#(
   input logic[$clog2(NUM_WAYS)-1:0] l2_way_stored,
   input logic is_store,
 
+  output logic match_found,
   output logic stall,
   output logic[ID_SIZE-1:0] id_out,
   output logic[DATA_SIZE-1:0] write_out,
@@ -648,7 +701,14 @@ module mshr#(
       end
     end
 
-    if(l2_completed && ~draining) begin
+    if(l2_completed && l2_match_made && l2_match_index != drain_index) begin
+      if(~theorized_drain_index_valid) begin
+        theorized_drain_index = l2_match_index;
+        theorized_drain_index_valid = 1'b1;
+      end
+    end
+
+    if(l2_completed && l2_match_made && ~draining) begin
       wanted_drain_index = l2_match_index;
     end else if(draining && (entries[drain_index].count == 0)) begin
       wanted_drain_index = theorized_drain_index;
@@ -659,6 +719,7 @@ module mshr#(
   assign stall = draining | 
                 (miss & valid & (~match_made) & (num_entries_taken == ($clog2(NUM_ENTRYS)+1)'(NUM_ENTRYS))) | 
                 (miss & valid & match_made & (entries[match_index].count == ($clog2(QUEUE_SIZE)+1)'(QUEUE_SIZE)));
+  assign match_found = match_made;
 
   assign id_out = entries[drain_index].queue[entries[drain_index].head].id;
   assign write_out = entries[drain_index].queue[entries[drain_index].head].store_val;
@@ -682,19 +743,20 @@ module mshr#(
     end else begin
       // Handle match or open cases
       // Don't fill entry if l2 is done
-      if(l2_completed) begin
+      if(l2_completed && l2_match_made) begin
         // Force the mshr into drain mode or update the next entry to drain
         if(~draining) begin 
           draining <= 1'b1;
           drain_index <= wanted_drain_index;
         end
         entries[l2_match_index].should_drain <= 1'b1;
+        entries[l2_match_index].should_inform_l2 <= 1'b0;
         entries[l2_match_index].way_selected <= l2_way_stored;
       end 
 
       // TODO Have ready out for l2 and block it
 
-      if(miss && valid) begin
+      if(enqueue) begin
         if(match_made) begin  // Secondary miss
           entries[match_index].queue[entries[match_index].tail].is_store <= is_store;
           entries[match_index].queue[entries[match_index].tail].id <= id_in;
@@ -713,7 +775,7 @@ module mshr#(
           entries[entry_index].head <= 0;
           entries[entry_index].tail <= 1;
           entries[entry_index].count <= 1;
-          entries[entry_index].should_inform_l2 <= ~is_l2_ready;
+          entries[entry_index].should_inform_l2 <= should_inform_l2;
         end else begin  // Stall
         end
       end
@@ -726,6 +788,7 @@ module mshr#(
             draining <= 1'b0;
           end
           entries[drain_index].should_drain <= 1'b0;
+          entries[drain_index].should_inform_l2 <= 1'b0;
           entries[drain_index].occupied <= 1'b0;
           num_entries_taken <= num_entries_taken - 1;
         end 
@@ -734,7 +797,7 @@ module mshr#(
         entries[drain_index].count <= entries[drain_index].count - 1;
       end
 
-      if(is_l2_ready && l2_pending_match_made) begin
+      if(clear_l2_pending && l2_pending_match_made && ~entries[l2_pending_match_index].queue[entries[l2_pending_match_index].head].is_store) begin
         entries[l2_pending_match_index].should_inform_l2 <= 1'b0;
       end
     end

@@ -35,11 +35,12 @@ module fetch (
     output logic [29:0] imem_addr_o,
 
     // iTLB
+    input logic         itlb_ready_i,
     input logic         itlb_hit_i,
     input logic [29:0]  itlb_paddr_i,
     input logic         itlb_miss_i,
     output logic [63:0] itlb_vaddr_o, 
-    // output logic       itlb_valid_o,
+    output logic        itlb_valid_o,
 
     // branch predictor
     input logic         bp_taken_i,
@@ -166,12 +167,11 @@ module fetch (
     // stage 3 stalls if memory isn't valid
     assign stage3_stall = (stage4_stall && stage4.valid) | ~imem_valid_i;
 
-    // stage 2 stalls if stage 3 is stalled or if memory is not ready
-    // to take a request or if tlb hasn't given us a paddr yet
-    // TODO: how does tlb behave on a miss, will this work?
-    assign stage2_stall = (stage3_stall && stage3.valid) | ~imem_ready_i | itlb_miss_i;
-
-    assign stage1_stall = (stage2_stall && stage2.valid);
+    // stage 2 stalls if stage 3 is stalled or if tlb hasn't given us a paddr yet
+    assign stage2_stall = (stage3_stall && stage3.valid) | ~itlb_hit_i;
+    
+    // stage 1 stalls if stage 2 is stalled or if itlb isn't ready to receive 
+    assign stage1_stall = (stage2_stall && stage2.valid) | ~itlb_ready_i;
 
     assign stage1.valid = 1;
     assign stage1.vaddr = pc;
@@ -236,12 +236,16 @@ module fetch (
                 end
 
             end
+
+            if (itlb_ready_i && itlb_valid_o)
+                itlb_valid_o <= 0;
              
         end
 
         if (stage1.valid && ~stage1_stall) begin
             // bp query is done combinatorially, we should just be able to read the output
             itlb_vaddr_o <= pc;
+            itlb_valid_o <= 1;
 
             if (bp_taken_i) begin
                 pc <= bp_target_i; 

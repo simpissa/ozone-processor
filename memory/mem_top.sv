@@ -348,7 +348,7 @@ module mem_top #(
     );
 
     l2cache #( 
-    .CAPACITY(2048)
+    .CAPACITY(1024)
     ) l2 (
         .clk(clk),
         .rst(rst),
