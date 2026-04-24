@@ -1,62 +1,71 @@
 `timescale 1ns / 1ps
 
+import types::*;
+
 module load_queue #(
     parameter LQ_SIZE = 8,
-    parameter ID_W = 4,
-    parameter AGE_W = 15
+    parameter ROB_TAG_W = 6
 )(
     input  logic         clk,
     input  logic         reset,
-
+    
+    /*
     // Incoming trace operations
     input  logic         trace_valid,
     input  logic [2:0]   trace_op,
-    input  logic [ID_W-1:0]   trace_id,
+    input  logic [ROB_TAG_W-1:0]   trace_id,
     input  logic [47:0]  trace_vaddr,
     input  logic         trace_vaddr_is_valid,
-    input  logic [AGE_W-1:0] trace_age,
+    input  logic [ROB_TAG_W-1:0] trace_age,
     output logic         trace_ready,
+    */
+    
+    // cdb is used for resolving addresses, payload gives us load reqs
+    input fu_result_t     cdb_i,
+    input logic           payload_valid_i,
+    input issue_payload_t payload_i,
+    output logic          payload_ready_o,
 
     // Interface to Store Queue (for dependency checking / forwarding)
     output logic         sq_query_valid,
     output logic [47:0]  sq_query_addr,
-    output logic [3:0]   sq_query_id,
-    output logic [AGE_W-1:0] sq_query_age,
+    output logic [ROB_TAG_W-1:0]   sq_query_id,
+    output logic [ROB_TAG_W-1:0] sq_query_age,
     input  logic         sq_forward_valid, 
     input  logic [63:0]  sq_forward_data,
     input  logic         sq_conflict,
     input  logic         sq_miss,
 
     // information for store queue, but we don't really care
-    output logic [AGE_W-1:0] lq_head_age,
+    output logic [ROB_TAG_W-1:0] lq_head_age,
     output logic             lq_head_valid,
 
     // Request to L1 data cache
     output logic         l1_req_valid,
     output logic [47:0]  l1_req_vaddr,
-    output logic [3:0]   l1_req_id,
+    output logic [ROB_TAG_W-1:0]   l1_req_id,
     input  logic         l1_req_ready,
     input  logic         l1_req_received,
 
     // Response from cache hierarchy
     input  logic         l1_resp_valid,
-    input  logic [3:0]   l1_resp_id,
+    input  logic [ROB_TAG_W-1:0]   l1_resp_id,
     input  logic [63:0]  l1_resp_data,
 
     // Completion output (load finished)
     output logic         load_complete_valid,
-    output logic [3:0]   load_complete_id,
+    output logic [ROB_TAG_W-1:0]   load_complete_id,
     output logic [63:0]  load_complete_data
 );
 
 localparam IDX_W = $clog2(LQ_SIZE);
 localparam INVALID_IDX = LQ_SIZE;
-localparam N_TRACES = 1 << ID_W;
+// localparam N_TRACES = 1 << ROB_TAG_W;
 
 typedef struct packed {
     logic valid;
-    logic [ID_W-1:0] id;
-    logic [AGE_W-1:0] age;
+    logic [ROB_TAG_W-1:0] id;
+    logic [ROB_TAG_W-1:0] age;
     logic [47:0] vaddr;
     logic addr_valid;
     logic issued;
@@ -77,8 +86,7 @@ logic [IDX_W-1:0] tail;
 
 logic [LQ_SIZE-1:0] ready;
 
-// id map needs to have 
-logic [IDX_W:0] id_map [0:N_TRACES-1];
+// logic [IDX_W:0] id_map [0:N_TRACES-1];
 lq_entry queue [0:LQ_SIZE-1];
 
 assign lq_head_valid = queue[head].valid;
@@ -100,7 +108,8 @@ logic [IDX_W-1:0] issue_idx;
 logic DBG;
 logic [20:0] count;
 
-assign trace_ready = !queue[tail].valid;
+assign payload_ready_o = !queue[tail].valid;
+// assign trace_ready = !queue[tail].valid;
 
 task print_queue;
     if (DBG) begin    
@@ -133,7 +142,7 @@ initial begin
         queue[i].issued    = 0;
         queue[i].conflict  = 0;
         queue[i].completed = 0;
-        id_map[i]          = INVALID_IDX;
+        //id_map[i]          = INVALID_IDX;
     end
 
     head = 0;
@@ -149,6 +158,7 @@ initial begin
 
 end
 
+    
 always_ff @(posedge clk) begin
 
     count <= count + 1;
@@ -164,7 +174,7 @@ always_ff @(posedge clk) begin
             queue[i].conflict   <= 1'b0;
             queue[i].completed  <= 1'b0;
             queue[i].data       <= 64'b0;
-            id_map[i]           <= INVALID_IDX;
+            //id_map[i]           <= INVALID_IDX;
         end
 
         head <= 0;
@@ -180,7 +190,47 @@ always_ff @(posedge clk) begin
         waiting_issue <= 1;
     end
 
+    if (payload_valid_i && payload_ready_o) begin
+        if (payload_i.fu_select == FU_MEM && payload_i.fu_op == OP_LOAD) begin
+            assert(payload_i.src1_valid);
+            queue[tail].id <= payload_i.dest_tag;
+
+            if (payload_i.src1_ready)
+                queue[tail].vaddr <= payload_i.src1_value[47:0];
+            else
+                queue[tail].vaddr <= {{(48-ROB_TAG_W){1'b0}}, payload_i.src1_tag};
+
+            queue[tail].addr_valid <= payload_i.src1_ready;
+            queue[tail].age <= payload_i.dest_tag;
+            queue[tail].issued <= 0;
+            queue[tail].conflict <= 0;
+            queue[tail].completed <= 0;
+            queue[tail].valid <= 1;
+            
+            tail <= tail + 1;
+
+        end
+    end
+
+    // this is kinda really bad for us, know way for us to
+    // know if an address if getting resovled (if this is
+    // coming from AGU), so we probably just have to reset
+    // all conflict flags every time. to elaborate, this is
+    // very bad
+    if (cdb_i.valid) begin
+        for (int i = 0; i < LQ_SIZE; ++i) begin
+            if (queue[i].valid && cdb_i.tag == queue[i].vaddr[ROB_TAG_W-1:0]) begin
+                assert(!queue[i].addr_valid);
+                assert(!|cdb_i.value[63:48]);
+                queue[i].vaddr <= cdb_i.value[47:0];
+                queue[i].addr_valid <= 1;
+            end
+            queue[i].conflict <= 0;
+        end
+    end
+
     // new trace coming in! pick it up if necessary
+    /*
     if (trace_valid) begin
         // $display("picking up trace");
 
@@ -232,8 +282,9 @@ always_ff @(posedge clk) begin
             //     $display("Loadq Status: Received trace to be ignored.");
         end
     end
+    */
 
-    print_queue();
+    // print_queue();
 
     if (waiting_issue) begin
 
@@ -284,22 +335,18 @@ always_ff @(posedge clk) begin
                 // if (DBG)
                 //     $display("Loadq Status: request sent to l1");
             end
-
-
         end else if (sq_forward_valid) begin
             queue[issue_idx].completed <= 1;
             queue[issue_idx].data <= sq_forward_data;
             issue_storeq <= 0;
             waiting_issue <= 1;
             sq_query_valid <= 0;
-
         end else if (sq_conflict) begin
             queue[issue_idx].conflict <= 1;
             queue[issue_idx].issued <= 0;
             issue_storeq <= 0;
             waiting_issue <= 1;
             sq_query_valid <= 0;
-
         end
 
     end
@@ -320,7 +367,7 @@ always_ff @(posedge clk) begin
         if (l1_resp_valid) begin
 
             if (DBG)
-                $display("Loadq Status: Received response from L1. queue id %d l1_id %d issue_idx %d id_map idx %d", queue[issue_idx].id, l1_resp_id, issue_idx, id_map[l1_resp_id]);
+                $display("Loadq Status: Received response from L1. queue id %d l1_id %d issue_idx %d", queue[issue_idx].id, l1_resp_id, issue_idx);
 
             assert(queue[issue_idx].id == l1_resp_id);
 
@@ -342,7 +389,7 @@ always_ff @(posedge clk) begin
             $display("Loadq Status: Dequeueing head");
 
         // invalidate the entry for this guy
-        id_map[queue[head].id] <= INVALID_IDX;
+        // id_map[queue[head].id] <= INVALID_IDX;
 
         load_complete_id    <= queue[head].id;
         load_complete_data  <= queue[head].data;
