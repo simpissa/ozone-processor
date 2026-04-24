@@ -5,8 +5,6 @@ import types::*;
 module cdb #(
     parameter int unsigned NUM_FUS = 6
 ) (
-    input  logic                      clk,
-    input  logic                      rst,
     input  logic                      flush,
 
     input  fu_result_t [NUM_FUS-1:0]  fu_results,

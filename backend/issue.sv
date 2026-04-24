@@ -3,8 +3,6 @@
 import types::*;
 
 module issue (
-    input  logic                 clk,
-    input  logic                 rst,
     input  logic                 flush,
 
     // Rename -> issue input bundle.
