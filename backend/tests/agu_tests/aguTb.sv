@@ -18,6 +18,7 @@ module lu_tb #(
     logic [63:0] addr;
     logic [63:0] imm;
     fu_op_t op;
+    fu_op_t output_op;
 
     fu_result_t bus_in;     // Set
 
@@ -40,7 +41,8 @@ module lu_tb #(
         .ready_in(ready_in),
         .addr(addr),
         .imm(imm),
-        .memop_id(memop_id)
+        .memop_id(memop_id),
+        .op_type(op)
     );
 
     agu # (.DELAY(1), .ID_LEN(ID_LEN)) agu_unit (
@@ -55,7 +57,9 @@ module lu_tb #(
         .memop_id(out),
         .final_addr(final_addr),
         .valid_out(tmp),
-        .ready_in(tmp2)
+        .ready_in(tmp2),
+        .op_type(op),
+        .mem_op(output_op)
     );
 
     reg [314:0] trace_line; // Every test vectors is exactly this long

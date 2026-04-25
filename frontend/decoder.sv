@@ -202,6 +202,7 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
+                        uop.is_sequential=1'b1;
                     end
                     1: begin
                         uop.fu_select=FU_MEM;
@@ -224,6 +225,7 @@ module decoder (
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
+                        uop.is_sequential=1'b1;
                     end
                     1: begin
                         uop.fu_select=FU_MEM;

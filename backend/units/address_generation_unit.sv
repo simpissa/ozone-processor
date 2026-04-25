@@ -16,15 +16,19 @@ module agu #(
     input  logic [63:0] base_addr,
     input  logic [63:0] imm,
     input  logic [ID_LEN-1:0] id,
+    input fu_op_t op_type,
 
     // output to mem unit i/o
     output logic         valid_out,
     input  logic         ready_in,
     output logic [63:0] final_addr, // Resulting addr
-    output logic [ID_LEN-1:0] memop_id
+    output logic [ID_LEN-1:0] memop_id,
+    output fu_op_t mem_op   // OP_LOAD or OP_STORE
 );
     logic [$clog2(DELAY):0] counter;
     logic pending;
+
+    assign mem_op=op_type;
 
     // If no addr calculation pending or if output being extracted, can accept input
     assign ready_out=!pending||valid_out&&ready_in;
@@ -75,7 +79,8 @@ module agu_rs #(
     input  logic         ready_in,
     output logic [63:0] addr,
     output logic [63:0] imm,
-    output logic [ID_LEN-1:0] memop_id
+    output logic [ID_LEN-1:0] memop_id,
+    output fu_op_t op_type
 );
     typedef struct packed {
         logic waiting;
@@ -123,6 +128,7 @@ module agu_rs #(
                         rs[j].imm<=in.imm;
                         rs[j].tag<=in.src1_tag;
                         rs[j].id<=in.memop_id;
+                        op_type<=in.fu_op;
                     end
                 end
             end
