@@ -16,7 +16,6 @@ module lu #(
     input logic [63:0] arg1,
     input logic [63:0] arg2,
     input logic [TAG_LEN-1:0] tag,
-    input logic [TAG_LEN-1:0] flag_tag, // TODO: how are we handling flags? As separate reg? Do flags have separate bus? Add to CDB width?
     input logic should_output,
     input logic set_flags,
     input fu_op_t opcode,
@@ -33,7 +32,8 @@ module lu #(
     logic [TAG_LEN-1:0] result_tag; // Instr tag
     logic [63:0] result;    // Result of instr
     logic send_to_bus;      // If instr should send to bus
-    logic [3:0] flag_results;   // New flags resulting from operation TODO: how to give?
+    logic [3:0] flag_results;   // New flags resulting from operation
+    logic flags_valid;
     
     logic valid_out;
     assign valid_out = counter==(DELAY-1)&&pending;
@@ -44,40 +44,50 @@ module lu #(
     // If no calculation pending or if output being extracted, can accept input
     assign ready_out=!pending||valid_out&&ready_in;
 
-    // TODO: may have to change to valid_out&&!ready_in if bus takes 1 cycle instead of combinational
-    // I think this is correct though
-    assign bus_out={valid_out&&send_to_bus,result_tag,result,70{1'b0}};
+    assign bus_out.valid=valid_out&&send_to_bus;
+    assign bus_out.tag=result_tag;
+    assign bus_out.value=result;
+    assign bus_out.flags=flag_results;
+    assign bus_out.flags_valid=flags_valid;
+    assign bus_out.exception=1'b0;
+    assign bus_out.exception_code=4'b0;
 
     always_ff @(posedge clk) begin
         if (rst || flush) begin
-            counter <= 0;
-            pending<=1'b0;
-            result_tag<= 0;
-            result<=0;
-            send_to_bus<=0;
-            flag_results<=0;
+            counter <= '0;
+            pending<='0;
+            result_tag<= '0;
+            result<='0;
+            send_to_bus<='0;
+            flag_results<='0;
+            flags_valid<='0;
         end else begin
             if (valid_in&&ready_out) begin
+                logic [63:0] temp_result;
                 // Take in input
                 counter<=0;
                 pending<=1'b1;
                 result_tag<=tag;
                 case (opcode)
-                    // TODO Set flags if (set_flags)
                     OP_XOR: begin
-                        result<=arg1^arg2;
+                        temp_result=arg1^arg2;
                     end
                     OP_AND: begin
-                        result<=arg1&arg2;
+                        temp_result=arg1&arg2;
                     end
                     OP_OR: begin
-                        result<=arg1|arg2;
+                        temp_result=arg1|arg2;
                     end
                     OP_NOT: begin
-                        result<=!arg1;
+                        temp_result=!arg1;
                     end
                 endcase
+                result<=temp_result;
+                if(set_flags) begin
+                    flag_results<={temp_result[63],result=='0,1'b0,1'b0};
+                end
                 send_to_bus<=should_output;
+                flags_valid<=set_flags;
             end else if (valid_out&&ready_in) begin
                 // If output and no input, pending variables no longer valid
                 pending<=1'b0;
@@ -101,28 +111,17 @@ module lu_rs #(
     // input from instruction issuer
     input  logic         valid_in,
     output logic         ready_out,
-    input logic input1_resolved,
-    input logic input2_resolved,
-    input logic [63:0] input1_val,
-    input logic [63:0] input2_val,
-    input logic [TAG_LEN-1:0] input1_tag,
-    input logic [TAG_LEN-1:0] input2_tag,
-    input logic [TAG_LEN-1:0] result_tag,
-    input logic [TAG_LEN-1:0] input_flag_tag, // TODO: handling flags?
-    input logic input_should_output,      // set to false if shouldn't output result to bus (such as writing to XZR)
-    input logic input_set_flags,
-    input fu_op_t opcode,
+    input issue_payload_t in,
 
     // listen from bus
     input  fu_result_t bus,
 
     // output to logical unit
-    output logic        valid_out,
+    output logic         valid_out,
     input  logic         ready_in,
     output logic [63:0] arg1,
     output logic [63:0] arg2,
-    output logic [TAG_LEN-1:0] tag,
-    output logic [TAG_LEN-1:0] flag_tag,
+    output logic [TAG_LEN-1:0] dst_tag,
     output logic should_output,
     output logic set_flags,
     output fu_op_t op
@@ -135,7 +134,6 @@ module lu_rs #(
         logic [TAG_LEN-1:0] reg1_tag;
         logic [TAG_LEN-1:0] reg2_tag;
         logic [TAG_LEN-1:0] result_tag;
-        logic [TAG_LEN-1:0] flag_tag;
         logic should_output;
         logic set_flags;
         fu_op_t op;
@@ -173,16 +171,15 @@ module lu_rs #(
                     if (!inserted&&!curr_entries[j]) begin
                         inserted=1'b1;
                         curr_entries[j]<=1'b1;
-                        rs[j].waiting1<=!input1_resolved;
-                        rs[j].waiting2<=!input2_resolved;
-                        rs[j].arg1<=input1_val;
-                        rs[j].arg2<=input2_val;
-                        rs[j].reg1_tag<=input1_tag;
-                        rs[j].reg2_tag<=input2_tag;
-                        rs[j].result_tag<=result_tag;
-                        rs[j].flag_tag<=input_flag_tag;
-                        rs[j].should_output<=input_should_output;
-                        rs[j].set_flags<=input_set_flags;
+                        rs[j].waiting1<=!in.src1_ready;
+                        rs[j].waiting2<=!in.src2_ready;
+                        rs[j].arg1<=in.src1_value;
+                        rs[j].arg2<=in.src2_value;
+                        rs[j].reg1_tag<=in.src1_tag;
+                        rs[j].reg2_tag<=in.src2_tag;
+                        rs[j].result_tag<=in.dest_tag;
+                        rs[j].should_output<=in.dest_valid;
+                        rs[j].set_flags<=in.set_flags;
                         rs[j].op<=opcode;
                     end
                 end
@@ -203,8 +200,7 @@ module lu_rs #(
                     sent_index<=j;
                     arg1<=rs[j].arg1;
                     arg2<=rs[j].arg2;
-                    tag<=rs[j].result_tag;
-                    flag_tag<=rs[j].flag_tag;
+                    dst_tag<=rs[j].result_tag;
                     should_output<=rs[j].should_output;
                     set_flags<=rs[j].set_flags;
                     op<=rs[j].op;

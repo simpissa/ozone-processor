@@ -65,11 +65,7 @@ module agu_rs #(
     // input from instruction issuer
     input  logic         valid_in,
     output logic         ready_out,
-    input logic input_resolved,     // 1 indicates that input_reg_val contains valid value, else need to wait for bus
-    input logic [63:0] input_imm,
-    input logic [63:0] input_reg_val,
-    input logic [TAG_LEN-1:0] input_tag,
-    input logic [ID_LEN-1:0] lsq_id,    // corresponds to id of memory op trace
+    input issue_payload_t in,
 
     // listen from bus
     input  fu_result_t bus,
@@ -119,11 +115,11 @@ module agu_rs #(
                     if (!inserted&&!curr_entries[j]) begin
                         inserted=1'b1;
                         curr_entries[j]<=1'b1;
-                        rs[j].waiting<=!input_resolved;
-                        rs[j].addr<=input_reg_val;
-                        rs[j].imm<=input_imm;
-                        rs[j].tag<=input_tag;
-                        rs[j].id<=lsq_id;
+                        rs[j].waiting<=!in.src1_ready;
+                        rs[j].addr<=in.src1_value;
+                        rs[j].imm<=in.imm;
+                        rs[j].tag<=in.src1_tag;
+                        rs[j].id<=in.memop_id;
                     end
                 end
             end

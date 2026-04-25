@@ -49,6 +49,7 @@ package types;
     localparam int unsigned ROB_TAG_W = 6;
     localparam int unsigned NUM_SPRS  = 8;
     localparam int unsigned SPR_IDX_W = 3;
+    localparam int MEMOP_ID_LEN = 4;
 
     // Keep the baseline testing flow on a single synchronous vector/code path,
     // but leave room to distinguish exception classes later.
@@ -92,6 +93,9 @@ package types;
     typedef struct packed {
         fu_t                fu_select;
         fu_op_t             fu_op;
+        logic               set_flags;
+        logic [MEMOP_ID_LEN-1:0] memop_id;  // Used for AGU and memory unit as trace id
+        logic               dest_valid; // Set to false if writing to XZR
         logic [ROB_TAG_W-1:0] dest_tag;
         logic               src1_valid; // valid: is this register used in execution
         logic [63:0]        src1_value;
