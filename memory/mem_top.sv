@@ -102,6 +102,12 @@ module mem_top #(
     logic tlb_fill_ready;
 
     logic raw_trace_is_resolve;
+    issue_payload_t lq_payload;
+    issue_payload_t sq_payload;
+    fu_result_t trace_cdb;
+    logic [ROB_TAG_W-1:0] trace_tag;
+
+    assign trace_tag = {{(ROB_TAG_W-ID_W){1'b0}}, trace_id};
 
     // accept a new trace from HPS whenever we aren't already holding one
     assign trace_ready = ~trace_pending;
@@ -205,19 +211,47 @@ module mem_top #(
         end
     end
 
+    always_comb begin
+        lq_payload = '0;
+        lq_payload.fu_select = FU_MEM;
+        lq_payload.fu_op = OP_LOAD;
+        lq_payload.dest_tag = trace_tag;
+        lq_payload.src1_valid = 1'b1;
+        lq_payload.src1_ready = trace_vaddr_is_valid;
+        lq_payload.src1_value = {{(64-VADDR_W){1'b0}}, trace_vaddr};
+        lq_payload.src1_tag = trace_tag;
+
+        sq_payload = '0;
+        sq_payload.fu_select = FU_MEM;
+        sq_payload.fu_op = OP_STORE;
+        sq_payload.dest_tag = trace_tag;
+        sq_payload.src1_valid = 1'b1;
+        sq_payload.src1_ready = trace_vaddr_is_valid;
+        sq_payload.src1_value = {{(64-VADDR_W){1'b0}}, trace_vaddr};
+        sq_payload.src1_tag = trace_tag;
+        sq_payload.src2_valid = 1'b1;
+        sq_payload.src2_ready = trace_value_is_valid;
+        sq_payload.src2_value = trace_value;
+        sq_payload.src2_tag = trace_tag;
+
+        trace_cdb = '0;
+        if (trace_fire && (trace_op == OP_MEM_RESOLVE) && trace_vaddr_is_valid) begin
+            trace_cdb.valid = 1'b1;
+            trace_cdb.tag = trace_tag;
+            trace_cdb.value = {{(64-VADDR_W){1'b0}}, trace_vaddr};
+        end
+    end
+
     load_queue #(
         .LQ_SIZE(LQ_SIZE),
-        .ID_W(ID_W)
+        .ROB_TAG_W(ID_W)
     ) lq (
         .clk(clk),
         .reset(rst),
-        .trace_ready(lq_trace_ready),
-        .trace_valid(lq_trace_valid),
-        .trace_op(trace_op),
-        .trace_id(trace_id),
-        .trace_vaddr(trace_vaddr),
-        .trace_vaddr_is_valid(trace_vaddr_is_valid),
-        .trace_age(lq_trace_age),
+        .cdb_i(trace_cdb),
+        .payload_valid_i(lq_trace_valid),
+        .payload_i(lq_payload),
+        .payload_ready_o(lq_trace_ready),
         .sq_query_valid(lq_sq_query_valid),
         .sq_query_addr(lq_sq_query_addr),
         .sq_query_id(lq_sq_query_id), // TODO: currently unused, i think the sq should take this as input?
@@ -247,19 +281,15 @@ module mem_top #(
 
 
     store_queue #(
-        .SQ_SIZE(SQ_SIZE)
+        .SQ_SIZE(SQ_SIZE),
+        .ROB_TAG_W(ID_W)
     ) sq (
         .rst(rst),
         .clk_in(clk),
-        .valid_trace(sq_trace_valid),
-        .ready_out(sq_ready_out),
-        .trace_id(trace_id),
-        .trace_vaddr(trace_vaddr),
-        .trace_vaddr_is_valid(trace_vaddr_is_valid),
-        .trace_value_is_valid(trace_value_is_valid),
-        .trace_value(trace_value),
-        .resolve(sq_resolve),
-        .age(sq_age),
+        .cdb_i(trace_cdb),
+        .payload_valid_i(sq_trace_valid),
+        .payload_i(sq_payload),
+        .payload_ready_o(sq_ready_out),
         .lq_head_age(lq_head_age),
         .lq_head_valid(lq_head_valid),
         .search_addr(sq_search_addr),

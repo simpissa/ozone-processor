@@ -3,79 +3,140 @@
 import types::*;
 
 module frontend (
-	input logic clk,
-	input logic rstN,
+    input  logic        clk,
+    input  logic        rstN,
+    input  logic [63:0] startPC,
 
-	// Branch resolution feedback for predictor training.
-	input logic brResolveValid,
-	input logic brResolveIsBranch,
-	input logic brResolveIsConditional,
-	input logic [63:0] brResolvePC,
-	input logic brResolveTaken,
-	input logic [63:0] brResolveTarget
+    input  logic        flush,
+    input  logic [63:0] redirectPC,
+
+    input  logic [63:0] ttbr0_el1,
+
+    // Instruction cache/line-fill path used by fetch.
+    input  logic [511:0] imem_rdata_i,
+    input  logic         imem_ready_i,
+    input  logic         imem_valid_i,
+    output logic         imem_valid_o,
+    output logic [29:0]  imem_addr_o,
+
+    // Page-table walk path used by the iTLB.
+    input  logic [511:0] itlb_mem_rdata_i,
+    input  logic         itlb_mem_ready_i,
+    input  logic         itlb_mem_valid_i,
+    output logic         itlb_mem_valid_o,
+    output logic [29:0]  itlb_mem_addr_o,
+
+    // Decode/rename boundary.
+    output logic         valid_out,
+    input  logic         ready_in,
+    output uop_t         uop_out,
+    output logic [63:0]  pc_out,
+    output logic         pred_taken_out,
+    output logic [63:0]  pred_target_out,
+
+    // Branch resolution feedback for predictor training.
+    input logic          brResolveValid,
+    input logic          brResolveIsBranch,
+    input logic          brResolveIsConditional,
+    input logic [63:0]   brResolvePC,
+    input logic          brResolveTaken,
+    input logic [63:0]   brResolveTarget
 );
 
-	logic rst;
+    logic rst;
+    assign rst = !rstN;
 
-	logic [63:0] fetchNextPC;
-	logic decodeReady;
+    logic [31:0] fetch_instr;
+    logic [63:0] fetch_pc;
+    logic fetch_valid;
+    logic fetch_ready;
 
-	logic predTaken;
-	logic [63:0] predTarget;
+    logic bp_req_valid;
+    logic [63:0] bp_req_pc;
+    logic pred_taken;
+    logic [63:0] pred_target;
 
-	logic [31:0] fetchInstr;
-	logic [63:0] fetchPC;
-	logic fetchValid;
-	logic el;
-	logic decodeValidOut;
-	logic decodeReadyIn;
-	uop_t decodeUop;
+    logic itlb_ready;
+    logic itlb_hit;
+    logic [29:0] itlb_paddr;
+    logic itlb_miss;
+    logic [63:0] itlb_vaddr;
+    logic itlb_valid;
 
-	assign rst = !rstN;
+    assign pc_out = fetch_pc;
+    assign pred_taken_out = pred_taken;
+    assign pred_target_out = pred_target;
 
-	assign decodeReadyIn = 1'b1;
+    branchPredictor bp (
+        .clk(clk),
+        .rstN(rstN),
+        .predReqValid(bp_req_valid),
+        .predReqPC(bp_req_pc),
+        .predTaken(pred_taken),
+        .predTarget(pred_target),
+        .resolveValid(brResolveValid),
+        .resolveIsBranch(brResolveIsBranch),
+        .resolveIsConditional(brResolveIsConditional),
+        .resolvePC(brResolvePC),
+        .resolveTaken(brResolveTaken),
+        .resolveTarget(brResolveTarget)
+    );
 
-	branchPredictor bp (
-		.clk(clk),
-		.rstN(rstN),
-		.predReqValid(1'b1),
-		.predReqPC(fetchNextPC),
-		.predTaken(predTaken),
-		.predTarget(predTarget),
-		.resolveValid(brResolveValid),
-		.resolveIsBranch(brResolveIsBranch),
-		.resolveIsConditional(brResolveIsConditional),
-		.resolvePC(brResolvePC),
-		.resolveTaken(brResolveTaken),
-		.resolveTarget(brResolveTarget)
-	);
+    itlb i_itlb (
+        .clk(clk),
+        .reset(rst),
+        .ttbr0(ttbr0_el1),
+        .fetch_valid_i(itlb_valid),
+        .fetch_vaddr_i(itlb_vaddr),
+        .fetch_hit_o(itlb_hit),
+        .fetch_paddr_o(itlb_paddr),
+        .fetch_miss_o(itlb_miss),
+        .fetch_ready_o(itlb_ready),
+        .mem_ready_i(itlb_mem_ready_i),
+        .mem_valid_i(itlb_mem_valid_i),
+        .mem_rdata_i(itlb_mem_rdata_i),
+        .mem_addr_o(itlb_mem_addr_o),
+        .mem_valid_o(itlb_mem_valid_o)
+    );
 
-	// l1 cache goes here????
+    fetch fetchStage (
+        .clk(clk),
+        .reset(rst),
+        .flush(flush),
+        .reset_pc_i(startPC),
+        .exe_target_i(redirectPC),
+        .dcode_ready_i(fetch_ready),
+        .dcode_instr_o(fetch_instr),
+        .dcode_pc_o(fetch_pc),
+        .dcode_valid_o(fetch_valid),
+        .imem_rdata_i(imem_rdata_i),
+        .imem_ready_i(imem_ready_i),
+        .imem_valid_i(imem_valid_i),
+        .imem_valid_o(imem_valid_o),
+        .imem_addr_o(imem_addr_o),
+        .itlb_ready_i(itlb_ready),
+        .itlb_hit_i(itlb_hit),
+        .itlb_paddr_i(itlb_paddr),
+        .itlb_miss_i(itlb_miss),
+        .itlb_vaddr_o(itlb_vaddr),
+        .itlb_valid_o(itlb_valid),
+        .bp_taken_i(pred_taken),
+        .bp_target_i(pred_target),
+        .bp_valid_o(bp_req_valid),
+        .bp_vaddr_o(bp_req_pc)
+    );
 
-	fetch fetchStage (
-		.clk(clk),
-		.rstN(rstN),
-		.predPC(predTarget),
-		.decodeReady(decodeReady),
-		.nextPC(fetchNextPC),
-		.instr(fetchInstr),
-		.pc(fetchPC),
-		.valid(fetchValid),
-		.el(el)
-	);
-
-	decoder decoderStage (
-		.clk(clk),
-		.rst(rst),
-		.flush(1'b0),
-		.instr(fetchInstr),
-		.pc(fetchPC),
-		.el(el),
-		.valid_in(fetchValid),
-		.ready_out(decodeReady),
-		.valid_out(decodeValidOut),
-		.ready_in(decodeReadyIn),
-		.uop(decodeUop)
-	);
+    decoder decoderStage (
+        .clk(clk),
+        .rst(rst),
+        .flush(flush),
+        .instr(fetch_instr),
+        .pc(fetch_pc),
+        .valid_in(fetch_valid),
+        .ready_out(fetch_ready),
+        .valid_out(valid_out),
+        .ready_in(ready_in),
+        .uop(uop_out)
+    );
 
 endmodule

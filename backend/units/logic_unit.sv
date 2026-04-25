@@ -81,11 +81,14 @@ module lu #(
                     OP_NOT: begin
                         temp_result=~arg1;
                     end
-                    default: temp_result='0;
+                    OP_MOV: begin
+                        temp_result=arg1;
+                    end
+                    default: temp_result=arg1;
                 endcase
                 result<=temp_result;
                 if(set_flags) begin
-                    flag_results<={temp_result[63],result=='0,1'b0,1'b0};
+                    flag_results<={temp_result[63],temp_result=='0,1'b0,1'b0};
                 end
                 send_to_bus<=should_output;
                 flags_valid<=set_flags;
@@ -175,10 +178,10 @@ module lu_rs #(
                     if (!inserted&&!curr_entries[j]) begin
                         inserted=1'b1;
                         curr_entries[j]<=1'b1;
-                        rs[j].waiting1<=!in.src1_ready;
-                        rs[j].waiting2<=!in.src2_ready;
+                        rs[j].waiting1<=in.src1_valid && !in.src1_ready;
+                        rs[j].waiting2<=in.src2_valid && !in.src2_ready;
                         rs[j].arg1<=in.src1_value;
-                        rs[j].arg2<=in.src2_value;
+                        rs[j].arg2<=in.src2_valid ? in.src2_value : (in.imm_valid ? in.imm : 64'd0);
                         rs[j].reg1_tag<=in.src1_tag;
                         rs[j].reg2_tag<=in.src2_tag;
                         rs[j].result_tag<=in.dest_tag;

@@ -23,6 +23,9 @@ module rename #(
     // Current committed NZCV, exposed for ROB to pack into SPSR_EL1 at
     // exception entry.
     output logic [3:0]           flags_out,
+    output logic [63:0]          spr_ttbr0_el1_out,
+    output logic [63:0]          spr_vbar_el1_out,
+    output logic [63:0]          spr_elr_el1_out,
 
     // Rename -> issue output
     output logic                 valid_out,
@@ -129,10 +132,10 @@ module rename #(
 
     // Intake/stall control. Rename only accepts a uop when the ROB can allocate
     // an entry and the downstream issue path can consume the renamed uop.
-    assign can_accept_uop   = !flush && rob_ready && ready_in;
-    assign rename_fire      = valid_in && can_accept_uop;
-    assign ready_out        = can_accept_uop;
-    assign valid_out        = rename_fire;
+    assign can_accept_uop   = !flush && rob_ready;
+    assign rename_fire      = valid_in && can_accept_uop && ready_in;
+    assign ready_out        = can_accept_uop && ready_in;
+    assign valid_out        = valid_in && can_accept_uop;
 
     // ROB allocation path. Every accepted uop forwards its commit metadata to
     // the ROB and receives the allocated tag back on rob_tag.
@@ -159,6 +162,9 @@ module rename #(
     assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
     assign el_out            = el_reg;
     assign flags_out         = flags_reg;
+    assign spr_ttbr0_el1_out = sprf[SPR_TTBR0_EL1[SPR_IDX_W-1:0]];
+    assign spr_vbar_el1_out  = sprf[SPR_VBAR_EL1[SPR_IDX_W-1:0]];
+    assign spr_elr_el1_out   = sprf[SPR_ELR_EL1[SPR_IDX_W-1:0]];
 
     // Privileged uop dispatched while not at EL1 traps at allocation. The uop
     // never reaches an FU; ROB sees it as a ready exception and handles it
@@ -296,7 +302,9 @@ module rename #(
         out_payload            = '0;
         out_payload.fu_select  = uop.fu_select;
         out_payload.fu_op      = uop.fu_op;
-        out_payload.dest_tag   = rename_fire ? rob_tag : '0;
+        out_payload.set_flags  = uop.sets_flags;
+        out_payload.dest_valid = uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store;
+        out_payload.dest_tag   = (valid_in && can_accept_uop) ? rob_tag : '0;
         out_payload.imm        = uop.imm;
         out_payload.imm_valid  = uop.imm_valid;
         out_payload.cond       = uop.cond;

@@ -5,7 +5,7 @@ import types::*;
 typedef enum logic [5:0] {
     I_LDUR, I_STUR, I_MOVK, I_MOVZ, I_ADRP,
     I_ADD, I_ADDS, I_SUB, I_SUBS,
-    // TODO: add rest of instructions
+    I_ORN, I_ORR, I_EOR, I_ANDS, I_UBFM, I_SBFM, I_LSLV, I_LSRV, I_ASRV,
     I_B, I_BCOND, I_BL, I_RET,
     I_NOP, I_ERET, I_MRS, I_MSR, I_SVC,
     I_F_LDUR, I_F_STUR, I_FMOV, I_FNEG, I_FADD, I_FMUL, I_FSUB, I_FCMP_RR, I_FCMP_RI,
@@ -54,7 +54,7 @@ module decoder (
     // fields
     logic [4:0] Rn_field;
     logic [4:0] RmField;
-    logic [4:0] Rd_field
+    logic [4:0] Rd_field;
 
     logic [25:0] simm26; // b1
     logic [18:0] simm19; // i2, b2
@@ -137,15 +137,15 @@ module decoder (
             32'b10011010110?????001010??????????: instr_id = I_ASRV;
 
             // FP
-            32'b11111100010xxxxxxxxx00xxxxxxxxxx : instr_id = I_F_LDUR;
-            32'b11111100000xxxxxxxxx00xxxxxxxxxx : instr_id = I_F_STUR;
-            32'b0001111001100000010000xxxxxxxxxx : instr_id = I_FMOV;
-            32'b0001111001100001010000xxxxxxxxxx : instr_id = I_FNEG;
-            32'b00011110011xxxxx001010xxxxxxxxxx : instr_id = I_FADD;
-            32'b00011110011xxxxx000010xxxxxxxxxx : instr_id = I_FMUL;
-            32'b00011110011xxxxx001110xxxxxxxxxx : instr_id = I_FSUB;
-            32'b00011110011xxxxx001000xxxxx00000 : instr_id = I_FCMP_RR;
-            32'b00011110011xxxxx001000xxxxx01000 : instr_id = I_FCMP_RI;
+            32'b11111100010?????????00?????????? : instr_id = I_F_LDUR;
+            32'b11111100000?????????00?????????? : instr_id = I_F_STUR;
+            32'b0001111001100000010000?????????? : instr_id = I_FMOV;
+            32'b0001111001100001010000?????????? : instr_id = I_FNEG;
+            32'b00011110011?????001010?????????? : instr_id = I_FADD;
+            32'b00011110011?????000010?????????? : instr_id = I_FMUL;
+            32'b00011110011?????001110?????????? : instr_id = I_FSUB;
+            32'b00011110011?????001000?????00000 : instr_id = I_FCMP_RR;
+            32'b00011110011?????001000?????01000 : instr_id = I_FCMP_RI;
 
             // Control transfer
             32'b000101??????????????????????????: instr_id = I_B;
@@ -352,7 +352,7 @@ module decoder (
                             2'b00: uop.fu_op=OP_LSL;
                             2'b01: uop.fu_op=OP_LSR;
                             2'b10: uop.fu_op=OP_ASR;
-                            // 2'b11 reserved (UNDEF)
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
                         endcase
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
@@ -393,7 +393,7 @@ module decoder (
                             2'b00: uop.fu_op=OP_LSL;
                             2'b01: uop.fu_op=OP_LSR;
                             2'b10: uop.fu_op=OP_ASR;
-                            // 2'b11 reserved (UNDEF)
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
                         endcase
                         uop.rs1=instr[20:16];
                         uop.rs1_valid=1'b1;
@@ -424,10 +424,8 @@ module decoder (
                             2'b00: uop.fu_op=OP_LSL;
                             2'b01: uop.fu_op=OP_LSR;
                             2'b10: uop.fu_op=OP_ASR;
-                            // 2'b11 reserved (UNDEF)
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
                         endcase
-                        uop.rd=Rd_field;
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=RmField;
                         uop.rs1_valid=1'b1;
                         uop.imm={{58{1'b0}},imm6};
@@ -439,10 +437,7 @@ module decoder (
                     1: begin
                         uop.fu_select=FU_LOGIC;
                         uop.fu_op=OP_XOR;
-                        uop.rd=Rd_field;
-                        uop.r_dest_valid=1'b1;
-                        uop.rs1=RmField;
-                        uop.rs1_valid=1'b1;
+                        uop.src1_is_sequential=1'b1;
                         uop.imm={64{1'b1}};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
@@ -456,8 +451,7 @@ module decoder (
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
                         uop.imm_valid=1'b0;
-                        uop.rs2=RmField;
-                        uop.rs2_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
                         uop.last_uop=1'b1;
                     end
                 endcase
@@ -472,10 +466,8 @@ module decoder (
                             2'b00: uop.fu_op=OP_LSL;
                             2'b01: uop.fu_op=OP_LSR;
                             2'b10: uop.fu_op=OP_ASR;
-                            // 2'b11 reserved (UNDEF)
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
                         endcase
-                        uop.rd=Rd_field;
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=RmField;
                         uop.rs1_valid=1'b1;
                         uop.imm={{58{1'b0}},imm6};
@@ -492,8 +484,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.rs2=RmField;
-                        uop.rs2_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
                         uop.last_uop=1'b1;
                     end
                 endcase
@@ -508,10 +499,8 @@ module decoder (
                             2'b00: uop.fu_op=OP_LSL;
                             2'b01: uop.fu_op=OP_LSR;
                             2'b10: uop.fu_op=OP_ASR;
-                            // 2'b11 reserved (UNDEF)
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
                         endcase
-                        uop.rd=Rd_field;
-                        uop.r_dest_valid=1'b1;
                         uop.rs1=RmField;
                         uop.rs1_valid=1'b1;
                         uop.imm={{58{1'b0}},imm6};
@@ -528,8 +517,7 @@ module decoder (
                         uop.r_dest_valid=1'b1;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
-                        uop.rs2=RmField;
-                        uop.rs2_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
                         uop.last_uop=1'b1;
                     end
                 endcase
@@ -537,48 +525,42 @@ module decoder (
 
             I_ANDS: begin
                 // Shift 2nd register, and W flags
-                0: begin
-                    uop.fu_select=FU_SHIFTER;
-                    case (instr[23:22])
-                        2'b00: uop.fu_op=OP_LSL;
-                        2'b01: uop.fu_op=OP_LSR;
-                        2'b10: uop.fu_op=OP_ASR;
-                        // 2'b11 reserved (UNDEF)
-                    endcase
-                    uop.rd=Rd_field;
-                    uop.r_dest_valid=1'b1;
-                    uop.rs1=RmField;
-                    uop.rs1_valid=1'b1;
-                    uop.imm={{58{1'b0}},imm6};
-                    uop.imm_valid=1'b1;
-                    uop.sets_flags=1'b0;
-                    uop.last_uop=1'b0;
-                end
+                case (uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            default: uop.fu_op=OP_LSL; // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rs1=RmField;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={{58{1'b0}},imm6};
+                        uop.imm_valid=1'b1;
+                        uop.sets_flags=1'b0;
+                        uop.last_uop=1'b0;
+                    end
 
-                1: begin
-                    uop.fu_select=FU_LOGIC;
-                    uop.fu_op=OP_AND;
-                    uop.imm_valid=1'b0;
-                    uop.rd=Rd_field;
-                    uop.r_dest_valid=1'b1;
-                    uop.rs1=Rn_field;
-                    uop.rs1_valid=1'b1;
-                    uop.rs2=RmField;
-                    uop.rs2_valid=1'b1;
-                    uop.sets_flags=1'b1;
-                    uop.last_uop=1'b1;
-                end
+                    1: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_AND;
+                        uop.imm_valid=1'b0;
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.src2_is_sequential=1'b1;
+                        uop.sets_flags=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
             end
 
             I_UBFM: begin
                 // Pick lsl or lsr uop
                 uop.fu_select=FU_SHIFTER;
-                // case (instr[23:22])
-                //     2'b00: uop.fu_op=OP_LSL;
-                //     2'b01: uop.fu_op=OP_LSR;
-                //     2'b10: uop.fu_op=OP_ASR;
-                //     // 2'b11 reserved (UNDEF)
-                // endcase
+                uop.fu_op=(instr[22:16] == 7'd63) ? OP_LSL : OP_LSR;
                 uop.rd=Rd_field;
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
@@ -593,20 +575,29 @@ module decoder (
                 uop.last_uop=1'b1;
             end
 
-            I_LSLV: begin
-                // Pick lsl or lsr uop
+            I_SBFM: begin
                 uop.fu_select=FU_SHIFTER;
-                // case (instr[23:22])
-                //     2'b00: uop.fu_op=OP_LSL;
-                //     2'b01: uop.fu_op=OP_LSR;
-                //     2'b10: uop.fu_op=OP_ASR;
-                //     // 2'b11 reserved (UNDEF)
-                // endcase
+                uop.fu_op=OP_ASR;
                 uop.rd=Rd_field;
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2_valid=1'b0;
+                uop.imm={{58{1'b0}},imm6};
+                uop.imm_valid=1'b1;
+                uop.sets_flags=1'b0;
+                uop.last_uop=1'b1;
+            end
+
+            I_LSLV: begin
+                // Pick lsl or lsr uop
+                uop.fu_select=FU_SHIFTER;
+                uop.fu_op=OP_LSL;
+                uop.rd=Rd_field;
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;
@@ -616,17 +607,12 @@ module decoder (
             I_LSRV: begin
                 // Pick lsl or lsr uop
                 uop.fu_select=FU_SHIFTER;
-                // case (instr[23:22])
-                //     2'b00: uop.fu_op=OP_LSL;
-                //     2'b01: uop.fu_op=OP_LSR;
-                //     2'b10: uop.fu_op=OP_ASR;
-                //     // 2'b11 reserved (UNDEF)
-                // endcase
+                uop.fu_op=OP_LSR;
                 uop.rd=Rd_field;
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;
@@ -636,17 +622,12 @@ module decoder (
             I_ASRV: begin
                 // Pick lsl or lsr uop
                 uop.fu_select=FU_SHIFTER;
-                // case (instr[23:22])
-                //     2'b00: uop.fu_op=OP_LSL;
-                //     2'b01: uop.fu_op=OP_LSR;
-                //     2'b10: uop.fu_op=OP_ASR;
-                //     // 2'b11 reserved (UNDEF)
-                // endcase
+                uop.fu_op=OP_ASR;
                 uop.rd=Rd_field;
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;
@@ -682,10 +663,11 @@ module decoder (
 
                     1: begin // ADD
                         uop.fu_select     = FU_ALU;
-                        uop.fu_op         = OP_ADD;
+                        uop.fu_op         = OP_COND_CHECK;
                         uop.imm           = bcond_offset;
                         uop.imm_valid     = 1'b1;
                         uop.src1_is_pc    = 1'b1;
+                        uop.src2_is_sequential = 1'b1;
                     end
                 endcase
             end

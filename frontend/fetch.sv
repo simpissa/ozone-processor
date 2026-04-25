@@ -6,6 +6,7 @@ module fetch (
     input logic clk,
     input logic reset,
     input logic flush, // not sure we need this, could just use execute
+    input logic [63:0] reset_pc_i,
     
     // or is it this we don't need?
     // should be pretty easy to just get the flush signal and say goodbye
@@ -196,6 +197,17 @@ module fetch (
     always_ff @(posedge clk) begin
 
         print_stages();
+
+        if (reset) begin
+            pc <= reset_pc_i;
+            stage2 <= '0;
+            stage3 <= '0;
+            stage4 <= '0;
+            imem_valid_o <= 1'b0;
+            imem_addr_o <= '0;
+            itlb_valid_o <= 1'b0;
+            itlb_vaddr_o <= '0;
+        end else begin
         
         // stage 3 stuff
         // by now, its a safe assumption that we queried memory for our address,
@@ -255,7 +267,8 @@ module fetch (
 
         end
 
-        move_stages();
+            move_stages();
+        end
 
     end
 

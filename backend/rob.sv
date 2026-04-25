@@ -5,7 +5,7 @@ import types::*;
 module rob #(
     parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W),
     parameter logic [63:0] SYNC_EXCEPTION_OFFSET = 64'd1024,
-    parameter logic [63:0] TERMINATE_VALUE = 64'hFFFF_FFFF_FFFF_FFFF,
+    parameter logic [63:0] TERMINATE_VALUE = 64'hFFFF_FFFF_FFFF_FFFF
 ) (
     input  logic                 clk,
     input  logic                 rst,
