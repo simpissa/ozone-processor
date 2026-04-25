@@ -26,7 +26,7 @@ module lu #(
     // output to bus
     output fu_result_t bus_out
 );
-    logic [$clog2(DELAY)-1:0] counter;
+    logic [$clog2(DELAY):0] counter;
     logic pending;
 
     logic [TAG_LEN-1:0] result_tag; // Instr tag
@@ -36,7 +36,7 @@ module lu #(
     logic flags_valid;
     
     logic valid_out;
-    assign valid_out = counter==(DELAY-1)&&pending;
+    assign valid_out = counter==($clog2(DELAY)+1)'(DELAY-1)&&pending;
 
     logic ready_in;
     assign ready_in = !send_to_bus||bus_in.valid && bus_in.tag==result_tag;
@@ -79,8 +79,9 @@ module lu #(
                         temp_result=arg1|arg2;
                     end
                     OP_NOT: begin
-                        temp_result=!arg1;
+                        temp_result=~arg1;
                     end
+                    default: temp_result='0;
                 endcase
                 result<=temp_result;
                 if(set_flags) begin
@@ -163,6 +164,9 @@ module lu_rs #(
         if (rst || flush) begin
             curr_entries<=0;
         end else begin
+            logic lu_accepted;
+            logic selected;
+            lu_accepted=valid_out&&ready_in;
             // Get entry from issuer
             if (valid_in && ready_out) begin
                 logic inserted;
@@ -180,24 +184,23 @@ module lu_rs #(
                         rs[j].result_tag<=in.dest_tag;
                         rs[j].should_output<=in.dest_valid;
                         rs[j].set_flags<=in.set_flags;
-                        rs[j].op<=opcode;
+                        rs[j].op<=in.fu_op;
                     end
                 end
             end
-            logic lu_accepted;
-            lu_accepted=valid_out&&ready_in;
+            
+            
             // Accepted input, need to remove the entry from table
             if (lu_accepted) begin
                 curr_entries[sent_index]<=1'b0;
             end
 
             // Choose entry to send to LU
-            logic selected;
             selected=1'b0;
             for(int j=0;j<RS_ENTRIES;j++) begin
-                if(!selected&&ready_entries[j]&&(!lu_accepted||j!=sent_index)) begin
+                if(!selected&&ready_entries[j]&&(!lu_accepted||j[$clog2(RS_ENTRIES)-1:0]!=sent_index)) begin
                     selected=1'b1;
-                    sent_index<=j;
+                    sent_index<=j[$clog2(RS_ENTRIES)-1:0];
                     arg1<=rs[j].arg1;
                     arg2<=rs[j].arg2;
                     dst_tag<=rs[j].result_tag;
