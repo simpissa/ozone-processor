@@ -1,7 +1,7 @@
+/* verilator lint_off UNOPTFLAT */
 `timescale 1ns / 1ps
 
 import types::*;
-
 // Barrel shifter implementation
 module barrelshifter #(parameter D_SIZE=64) (
   input  logic [D_SIZE-1:0]         x_in,
@@ -133,7 +133,7 @@ module shifter #(
     // output to bus
     output fu_result_t bus_out
 );
-    logic [$clog2(DELAY)-1:0] counter;
+    logic [$clog2(DELAY):0] counter;
     logic pending;
 
     logic [TAG_LEN-1:0] result_tag; // Instr tag
@@ -141,7 +141,7 @@ module shifter #(
     logic send_to_bus;      // If instr should send to bus
     
     logic valid_out;
-    assign valid_out = counter==(DELAY-1)&&pending;
+    assign valid_out = counter==($clog2(DELAY)+1)'(DELAY-1)&&pending;
 
     logic ready_in;
     assign ready_in = !send_to_bus||bus_in.valid && bus_in.tag==result_tag;
@@ -163,7 +163,7 @@ module shifter #(
     logic [2:0] bshift_op_in;
     logic bshift_zf_out;    // Unused
     logic bshift_vf_out;    // Unused
-    barrelshifter #(64) bshifter (.x_in(bshift_x_in),.s_in(bshift_s_in),.op_in(bshift_op_in),.y_out(result),.zf_out(bshift_zf_out),vf_out(bshift_vf_out));
+    barrelshifter #(64) bshifter (.x_in(bshift_x_in),.s_in(bshift_s_in),.op_in(bshift_op_in),.y_out(result),.zf_out(bshift_zf_out),.vf_out(bshift_vf_out));
 
     always_ff @(posedge clk) begin
         if (rst || flush) begin
@@ -174,9 +174,6 @@ module shifter #(
             bshift_x_in<='0;
             bshift_s_in<='0;
             bshift_op_in<='0;
-            bshift_y_out<='0;
-            bshift_zf_out<='0;
-            bshift_vf_out<='0;
         end else begin
             if (valid_in&&ready_out) begin
                 // Take in input
@@ -195,6 +192,7 @@ module shifter #(
                     OP_ASR: begin
                         bshift_op_in<=3'b001;
                     end
+                    default: bshift_op_in<='0;
                 endcase
                 send_to_bus<=should_output;
             end else if (valid_out&&ready_in) begin
@@ -270,6 +268,9 @@ module shifter_rs #(
         if (rst || flush) begin
             curr_entries<=0;
         end else begin
+            logic shifter_accepted;
+            logic selected;
+            shifter_accepted=valid_out&&ready_in;
             // Get entry from issuer
             if (valid_in && ready_out) begin
                 logic inserted;
@@ -286,24 +287,22 @@ module shifter_rs #(
                         rs[j].reg2_tag<=in.src2_tag;
                         rs[j].result_tag<=in.dest_tag;
                         rs[j].should_output<=in.dest_valid;
-                        rs[j].op<=opcode;
+                        rs[j].op<=in.fu_op;
                     end
                 end
             end
-            logic shifter_accepted;
-            shifter_accepted=valid_out&&ready_in;
+            
             // Accepted input, need to remove the entry from table
             if (shifter_accepted) begin
                 curr_entries[sent_index]<=1'b0;
             end
 
             // Choose entry to send to shifter
-            logic selected;
             selected=1'b0;
             for(int j=0;j<RS_ENTRIES;j++) begin
-                if(!selected&&ready_entries[j]&&(!shifter_accepted||j!=sent_index)) begin
+                if(!selected&&ready_entries[j]&&(!shifter_accepted||j[$clog2(RS_ENTRIES)-1:0]!=sent_index)) begin
                     selected=1'b1;
-                    sent_index<=j;
+                    sent_index<=j[$clog2(RS_ENTRIES)-1:0];
                     arg1<=rs[j].arg1;
                     arg2<=rs[j].arg2;
                     dst_tag<=rs[j].result_tag;
