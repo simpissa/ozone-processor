@@ -2,8 +2,7 @@
 import types::*;
 module lu_tb #(
     parameter int RS_ENTRIES = 4,
-    parameter int TAG_LEN = 6,
-    parameter int ID_LEN = 4
+    parameter int TAG_LEN = 6
 ) ();
     logic        clk;
     logic        rst;
@@ -17,19 +16,14 @@ module lu_tb #(
     logic         ready_in;
     logic [63:0] addr;
     logic [63:0] imm;
-    fu_op_t op;
-    fu_op_t output_op;
+
+    logic [TAG_LEN-1:0] out_tag;
+
 
     fu_result_t bus_in;     // Set
+    fu_result_t bus_out;
 
-
-    logic [ID_LEN-1:0] memop_id;
-    logic [63:0] final_addr;
-    logic [ID_LEN-1:0] out;// Output
-    logic tmp;
-    logic tmp2;
-
-    agu_rs #(.RS_ENTRIES(RS_ENTRIES),.TAG_LEN(TAG_LEN),.ID_LEN(ID_LEN)) rs (
+    agu_rs #(.RS_ENTRIES(RS_ENTRIES),.TAG_LEN(TAG_LEN)) rs (
         .clk(clk),
         .rst(rst),
         .flush(flush),
@@ -41,11 +35,10 @@ module lu_tb #(
         .ready_in(ready_in),
         .addr(addr),
         .imm(imm),
-        .memop_id(memop_id),
-        .op_type(op)
+        .dst_tag(out_tag)
     );
 
-    agu # (.DELAY(1), .ID_LEN(ID_LEN)) agu_unit (
+    agu # (.DELAY(1),.TAG_LEN(TAG_LEN)) agu_unit (
         .clk(clk),
         .rst(rst),
         .flush(flush),
@@ -53,16 +46,12 @@ module lu_tb #(
         .ready_out(ready_in),
         .base_addr(addr),
         .imm(imm),
-        .id(memop_id),
-        .memop_id(out),
-        .final_addr(final_addr),
-        .valid_out(tmp),
-        .ready_in(tmp2),
-        .op_type(op),
-        .mem_op(output_op)
+        .dst_tag(out_tag),
+        .bus_in(bus_in),
+        .bus_out(bus_out)
     );
 
-    reg [314:0] trace_line; // Every test vectors is exactly this long
+    reg [310:0] trace_line; // Every test vectors is exactly this long
     integer fd;  // file descriptor
 
     initial begin
@@ -91,7 +80,7 @@ module lu_tb #(
             @(negedge clk)
             {valid_in,in,bus_in}=trace_line;
             $display(
-                "valid: %b val: %h, mem_id: %b",tmp,final_addr,out
+                "valid: %b tag: %h val: %h flags: %b flags_valid: %b",bus_out.valid,bus_out.tag,bus_out.value,bus_out.flags,bus_out.flags_valid
             );
         end : test_loop
         $fclose(fd);

@@ -24,7 +24,6 @@ int main() {
     string fu_select = "000";
     string fu_op;
     string set_flags;
-    string memop_id = "0110";  // Used for AGU and memory unit as trace id
     string dest_valid;         // Set to false if writing to XZR
     string dest_tag;
     string src1_valid = "1";  // valid: is this register used in execution
@@ -69,7 +68,6 @@ int main() {
         str += fu_select;
         str += fu_op;
         str += set_flags;
-        str += memop_id;    // Used for AGU and memory unit as trace id
         str += dest_valid;  // Set to false if writing to XZR
         str += dest_tag;
         str += src1_valid;  // valid: is this register used in execution
