@@ -21,6 +21,7 @@
 #define CSR_RESET_REG    0x0
 #define CSR_STATUS_REG   0x8
 #define CSR_DONE_BIT     (1 << 0)
+#define CSR_START_PC     0x10
 
 // Register Mapping in CSR
 #define CSR_X_REGS_BASE  0x100
@@ -41,6 +42,11 @@ static void* g_csr_ptr = NULL;
 
 static void common_load_and_run(const char* binary_path) {
     if (!g_dram_ptr || !g_csr_ptr) return;
+
+    // Hold the processor in reset while we load the program.
+    volatile uint32_t* reset_reg  = (volatile uint32_t*)((uint8_t*)g_csr_ptr + CSR_RESET_REG);
+    volatile uint64_t* startpc_reg = (volatile uint64_t*)((uint8_t*)g_csr_ptr + CSR_START_PC);
+    *reset_reg = 1;
 
     // 1. Load ELF into SDRAM
     FILE* f = fopen(binary_path, "rb");
@@ -86,11 +92,11 @@ static void common_load_and_run(const char* binary_path) {
     }
     fclose(f);
 
-    // 2. Reset the Ozone Processor
+    // 2. Program startPC and release reset
+    *startpc_reg = (uint64_t)ehdr.e_entry;
+    plog(LOG_INFO, "startPC = 0x%016"PRIx64"\n", (uint64_t)ehdr.e_entry);
     plog(LOG_INFO, "Resetting Ozone Processor...\n");
-    volatile uint32_t* reset_reg = (volatile uint32_t*)((uint8_t*)g_csr_ptr + CSR_RESET_REG);
-    *reset_reg = 1;  // Assert reset
-    usleep(1000);    // Wait 1ms
+    usleep(1000);    // Wait 1ms with reset asserted
     *reset_reg = 0;  // Deassert reset
 
     // 3. Poll for completion
@@ -114,6 +120,7 @@ static void* map_bridge(int fd, uint64_t base, uint64_t span) {
 }
 
 void fpga_run(ozone_config_t* config, const char* binary_path) {
+    (void)config;
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0) {
         plog(LOG_ERROR, "Failed to open /dev/mem. Are you root?\n");
@@ -128,12 +135,13 @@ void fpga_run(ozone_config_t* config, const char* binary_path) {
         common_load_and_run(binary_path);
     }
 
-    if (g_dram_ptr) munmap(g_dram_ptr, HPS2FPGA_AXI_SPAN);
-    if (g_csr_ptr) munmap(g_csr_ptr, LWHPS2FPGA_AXI_SPAN);
-    close(fd);
+    // Mappings stay live so callers (e.g., fpga_get_state) can read state.
+    // Process exit reclaims them.
+    (void)fd;
 }
 
 void verilator_run(ozone_config_t* config, const char* binary_path) {
+    (void)config;
     // Verilator assumes bridges are exposed via shared memory files in /dev/shm
     int dram_fd = shm_open("/ozone_dram", O_RDWR, 0666);
     int csr_fd = shm_open("/ozone_csr", O_RDWR, 0666);
@@ -145,20 +153,21 @@ void verilator_run(ozone_config_t* config, const char* binary_path) {
         return;
     }
 
-    g_dram_ptr = mmap(NULL, HPS2FPGA_AXI_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, dram_fd, 0);
-    g_csr_ptr = mmap(NULL, LWHPS2FPGA_AXI_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, csr_fd, 0);
+    void* dram = mmap(NULL, HPS2FPGA_AXI_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, dram_fd, 0);
+    void* csr  = mmap(NULL, LWHPS2FPGA_AXI_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, csr_fd, 0);
 
-    if (g_dram_ptr != MAP_FAILED && g_csr_ptr != MAP_FAILED) {
+    if (dram != MAP_FAILED && csr != MAP_FAILED) {
+        g_dram_ptr = dram;
+        g_csr_ptr  = csr;
         plog(LOG_INFO, "Mapped Verilator bridges\n");
         common_load_and_run(binary_path);
     } else {
         plog(LOG_ERROR, "Failed to mmap Verilator bridges\n");
     }
 
-    if (g_dram_ptr != MAP_FAILED) munmap(g_dram_ptr, HPS2FPGA_AXI_SPAN);
-    if (g_csr_ptr != MAP_FAILED) munmap(g_csr_ptr, LWHPS2FPGA_AXI_SPAN);
-    close(dram_fd);
-    close(csr_fd);
+    // Mappings stay live; process exit reclaims them.
+    (void)dram_fd;
+    (void)csr_fd;
 }
 
 void fpga_get_state(cpu_state_t* cpu) {
@@ -185,6 +194,6 @@ void fpga_get_state(cpu_state_t* cpu) {
 }
 
 void verilator_get_state(cpu_state_t* cpu) {
-    // Current implementation uses same CSR mapping for both
+    // Verilator and FPGA share the same CSR/SDRAM layout, so the same reader works.
     fpga_get_state(cpu);
 }

@@ -4,75 +4,205 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cstring>
+#include <cstdint>
+#include <cstdio>
 #include <iostream>
 
 #define DRAM_SPAN 0x40000000ULL // 1GB
 #define CSR_SPAN  0x00200000ULL // 2MB
 
+// CSR layout — must match testing/src/run.c.
+#define CSR_RESET_REG    0x0
+#define CSR_STATUS_REG   0x8
+#define CSR_DONE_BIT     (1u << 0)
+#define CSR_START_PC     0x10
+#define CSR_X_REGS_BASE  0x100
+#define CSR_PC           0x200
+#define CSR_PSTATE       0x208
+#define CSR_SP_EL0       0x210
+#define CSR_SP_EL1       0x218
+#define CSR_SPSR_EL1     0x220
+#define CSR_ELR_EL1      0x228
+#define CSR_ESR_EL1      0x230
+#define CSR_TTBR0_EL1    0x238
+#define CSR_VBAR_EL1     0x240
+#define CSR_ACTLR_EL1    0x248
+#define CSR_V_REGS_BASE  0x300
+
+// Indices into Top's sprf[0:7] — must match spr_t in types.sv.
+enum {
+    SPR_SP_EL0 = 0,
+    SPR_SP_EL1 = 1,
+    SPR_ELR_EL1 = 2,
+    SPR_SPSR_EL1 = 3,
+    SPR_ESR_EL1 = 4,
+    SPR_TTBR0_EL1 = 5,
+    SPR_VBAR_EL1 = 6,
+    SPR_ACTLR_EL1 = 7,
+};
+
+static uint8_t* dram_shm;
+static uint8_t* csr_shm;
+
+// Translate a dmem virtual address. EL1 is identity-mapped; EL0 walks the
+// flat 200-entry table at TTBR0_EL1.
+static bool translate_dmem(VTop* top, uint64_t vaddr, uint64_t* paddr) {
+    if (top->el) {
+        if (vaddr >= DRAM_SPAN) return false;
+        *paddr = vaddr;
+        return true;
+    }
+    uint64_t ttbr   = top->sprf[SPR_TTBR0_EL1];
+    uint64_t vpn    = vaddr >> 12;
+    uint64_t offset = vaddr & 0xFFFULL;
+    uint64_t tte_addr = ttbr + (vpn * 8);
+    if (tte_addr + 8 > DRAM_SPAN) return false;
+    uint64_t pte;
+    std::memcpy(&pte, &dram_shm[tte_addr], 8);
+    if (!(pte & 1)) return false;
+    *paddr = (pte & ~0xFFFULL) | offset;
+    return *paddr + 8 <= DRAM_SPAN;
+}
+
+static void mirror_state(VTop* top) {
+    for (int i = 0; i < 31; i++) {
+        *(volatile uint64_t*)(csr_shm + CSR_X_REGS_BASE + (i * 8)) = top->x_regs[i];
+    }
+    *(volatile uint64_t*)(csr_shm + CSR_SP_EL0)    = top->sprf[SPR_SP_EL0];
+    *(volatile uint64_t*)(csr_shm + CSR_SP_EL1)    = top->sprf[SPR_SP_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_ELR_EL1)   = top->sprf[SPR_ELR_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_SPSR_EL1)  = top->sprf[SPR_SPSR_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_ESR_EL1)   = top->sprf[SPR_ESR_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_TTBR0_EL1) = top->sprf[SPR_TTBR0_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_VBAR_EL1)  = top->sprf[SPR_VBAR_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_ACTLR_EL1) = top->sprf[SPR_ACTLR_EL1];
+    *(volatile uint32_t*)(csr_shm + CSR_PSTATE)    = ((uint32_t)top->pstate_flags) << 28;
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     VTop* top = new VTop;
 
-    // 1. Setup Shared Memory
     shm_unlink("/ozone_dram");
     shm_unlink("/ozone_csr");
 
     int dram_fd = shm_open("/ozone_dram", O_CREAT | O_RDWR, 0666);
     int csr_fd  = shm_open("/ozone_csr",  O_CREAT | O_RDWR, 0666);
-
     ftruncate(dram_fd, DRAM_SPAN);
     ftruncate(csr_fd,  CSR_SPAN);
+    dram_shm = (uint8_t*)mmap(NULL, DRAM_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, dram_fd, 0);
+    csr_shm  = (uint8_t*)mmap(NULL, CSR_SPAN,  PROT_READ | PROT_WRITE, MAP_SHARED, csr_fd, 0);
+    std::memset(csr_shm, 0, CSR_SPAN);
+    // Hold the proc in reset until the host explicitly releases it.
+    *(volatile uint32_t*)(csr_shm + CSR_RESET_REG) = 1;
 
-    uint8_t* dram_shm = (uint8_t*)mmap(NULL, DRAM_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, dram_fd, 0);
-    uint8_t* csr_shm  = (uint8_t*)mmap(NULL, CSR_SPAN,  PROT_READ | PROT_WRITE, MAP_SHARED, csr_fd, 0);
+    std::cout << "[Verilator] Shared memory ready. Waiting for reset..." << std::endl;
 
-    memset(csr_shm, 0, CSR_SPAN);
+    top->reset = 1;
+    top->startPC = 0;
+    top->imem_resp_valid = 0;
+    top->itlb_resp_valid = 0;
+    top->dmem_load_ready = 1;
+    top->dmem_load_received = 0;
+    top->dmem_load_resp_valid = 0;
+    top->dmem_load_resp_id = 0;
+    top->dmem_load_resp_data = 0;
+    top->dmem_store_ready = 1;
 
-    std::cout << "[Verilator] Shared memory initialized. Waiting for reset..." << std::endl;
-
-    bool last_reset = false;
+    bool prev_reset = true;
+    bool done_latched = false;
 
     while (!Verilated::gotFinish()) {
-        // Toggle clock
-        top->clk = 0; top->eval();
-        top->clk = 1;
+        // Sample host inputs from CSR.
+        uint32_t reset = *(volatile uint32_t*)(csr_shm + CSR_RESET_REG);
+        top->reset   = reset;
+        top->startPC = *(volatile uint64_t*)(csr_shm + CSR_START_PC);
 
-        // Sync Reset from SHM (Offset 0x0)
-        top->reset = *(volatile uint32_t*)(csr_shm + 0x0);
-        
-        if (top->reset && !last_reset) {
-            std::cout << "[Verilator] Reset asserted by Host." << std::endl;
+        if (reset && !prev_reset) {
+            std::cout << "[Verilator] Reset asserted by host" << std::endl;
+        } else if (!reset && prev_reset) {
+            std::cout << "[Verilator] Reset released, startPC=0x"
+                      << std::hex << (uint64_t)top->startPC << std::dec << std::endl;
+            done_latched = false;
         }
-        last_reset = top->reset;
+        prev_reset = reset;
 
-        // Handle Memory Read
-        if (top->mem_en) {
-            if (top->mem_addr < DRAM_SPAN) {
-                top->mem_rdata = *(uint32_t*)(&dram_shm[top->mem_addr]);
+        // Posedge.
+        top->clk = 0; top->eval();
+        top->clk = 1; top->eval();
+
+        // Serve memory combinationally based on post-edge outputs.
+        if (top->imem_req_valid) {
+            uint64_t addr = ((uint64_t)top->imem_req_addr) & ~0x3FULL;
+            if (addr + 64 <= DRAM_SPAN) {
+                std::memcpy(&top->imem_resp_rdata, &dram_shm[addr], 64);
+            } else {
+                std::memset(&top->imem_resp_rdata, 0, 64);
+            }
+            top->imem_resp_valid = 1;
+        } else {
+            top->imem_resp_valid = 0;
+        }
+
+        if (top->itlb_req_valid) {
+            uint64_t addr = ((uint64_t)top->itlb_req_addr) & ~0x3FULL;
+            if (addr + 64 <= DRAM_SPAN) {
+                std::memcpy(&top->itlb_resp_rdata, &dram_shm[addr], 64);
+            } else {
+                std::memset(&top->itlb_resp_rdata, 0, 64);
+            }
+            top->itlb_resp_valid = 1;
+        } else {
+            top->itlb_resp_valid = 0;
+        }
+
+        // Default load response off; drive it the same cycle a load fires.
+        top->dmem_load_received  = 0;
+        top->dmem_load_resp_valid = 0;
+        if (top->dmem_load_valid && top->dmem_load_ready) {
+            uint64_t paddr;
+            if (translate_dmem(top, (uint64_t)top->dmem_load_vaddr, &paddr)) {
+                uint64_t data;
+                std::memcpy(&data, &dram_shm[paddr], 8);
+                top->dmem_load_resp_data  = data;
+                top->dmem_load_resp_id    = top->dmem_load_id;
+                top->dmem_load_resp_valid = 1;
+                top->dmem_load_received   = 1;
+            } else {
+                std::cerr << "[Verilator] dmem load translation failed for vaddr=0x"
+                          << std::hex << (uint64_t)top->dmem_load_vaddr << std::dec << std::endl;
+            }
+        }
+
+        if (top->dmem_store_valid && top->dmem_store_ready) {
+            uint64_t paddr;
+            if (translate_dmem(top, (uint64_t)top->dmem_store_vaddr, &paddr)) {
+                uint64_t value = top->dmem_store_value;
+                std::memcpy(&dram_shm[paddr], &value, 8);
+            } else {
+                std::cerr << "[Verilator] dmem store translation failed for vaddr=0x"
+                          << std::hex << (uint64_t)top->dmem_store_vaddr << std::dec << std::endl;
             }
         }
 
         top->eval();
 
-        // Sync State to SHM
-        // Status (Offset 0x8)
-        *(volatile uint32_t*)(csr_shm + 0x8) = (uint32_t)top->done;
-
-        // X Registers (Offset 0x100)
-        for (int i = 0; i < 31; i++) {
-            *(volatile uint64_t*)(csr_shm + 0x100 + (i * 8)) = top->x_regs[i];
+        mirror_state(top);
+        if (top->done && !done_latched) {
+            done_latched = true;
+            std::cout << "[Verilator] done asserted; final state mirrored to CSR" << std::endl;
         }
+        *(volatile uint32_t*)(csr_shm + CSR_STATUS_REG) = done_latched ? CSR_DONE_BIT : 0;
 
-        if (top->done) {
-            std::cout << "[Verilator] Execution complete. X0=" << std::hex << top->x_regs[0] << std::endl;
-            // Wait for reset to be cleared before allowing another run
-            while (*(volatile uint32_t*)(csr_shm + 0x0)) { usleep(1000); }
-            top->done = 0; // Reset for next potential run
-        }
-
-        usleep(100); // Slow down simulation for visibility
+        // Yield occasionally so the host can update SHM.
+        usleep(1);
     }
 
+    munmap(dram_shm, DRAM_SPAN);
+    munmap(csr_shm, CSR_SPAN);
+    close(dram_fd);
+    close(csr_fd);
     delete top;
     return 0;
 }
