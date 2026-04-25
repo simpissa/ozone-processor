@@ -54,10 +54,12 @@ module decoder (
     // fields
     logic [4:0] Rn_field;
     logic [4:0] RmField;
+    logic [4:0] Rd_field
 
     logic [25:0] simm26; // b1
     logic [18:0] simm19; // i2, b2
     logic [15:0] imm16;  // i1 / sysreg field
+    logic [5:0] imm6;  // i1 / sysreg field
 
     logic [3:0]  cond_field; // b2
     spr_t        decoded_spr_id;
@@ -65,11 +67,13 @@ module decoder (
     logic [63:0] bcond_offset;
     logic [63:0] b_offset;
 
+    assign Rd_field   = instr[4:0];
     assign Rn_field   = instr[9:5];
     assign RmField = instr[20:16];
     assign simm26     = instr[25:0];
     assign simm19     = instr[23:5];
     assign imm16      = instr[20:5];
+    assign imm6      = instr[15:10];
     
     assign cond_field = instr[3:0];
     // from ARM manual: bits(64) offset = SignExtend(imm19:'00', 64);
@@ -120,6 +124,17 @@ module decoder (
             32'b10101011??0?????????????????????: instr_id = I_ADDS;
             32'b1101000100??????????????????????: instr_id = I_SUB;
             32'b11101011??0?????????????????????: instr_id = I_SUBS;
+
+            32'b10101010??1?????????????????????: instr_id = I_ORN;
+            32'b10101010??0?????????????????????: instr_id = I_ORR;
+            32'b11001010??0?????????????????????: instr_id = I_EOR;
+            32'b11101010??0?????????????????????: instr_id = I_ANDS;
+            32'b1101001101??????????????????????: instr_id = I_UBFM;
+            32'b1001001101??????????????????????: instr_id = I_SBFM;
+            // TODO: Fix
+            32'b10011010110?????001000??????????: instr_id = I_LSLV;
+            32'b10011010110?????001001??????????: instr_id = I_LSRV;
+            32'b10011010110?????001010??????????: instr_id = I_ASRV;
 
             // FP
             32'b11111100010xxxxxxxxx00xxxxxxxxxx : instr_id = I_F_LDUR;
@@ -401,6 +416,246 @@ module decoder (
                     end
                 endcase
             end
+
+            I_ORN: begin
+                // Shift 2nd register, flip 2nd register, or 1st and 2nd
+                case(uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=RmField;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={{58{1'b0}},imm6};
+                        uop.imm_valid=1'b1;
+                        uop.sets_flags=1'b0;
+                        uop.last_uop=1'b0;
+                    end
+                    // Xor with all 1s
+                    1: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_XOR;
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=RmField;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={64{1'b1}};
+                        uop.imm_valid=1'b1;
+                        uop.last_uop=1'b0;
+                    end
+
+                    2:begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_OR;
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.imm_valid=1'b0;
+                        uop.rs2=RmField;
+                        uop.rs2_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+
+            I_ORR: begin
+                // Shift 2nd register, or 1st and 2nd
+                case(uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=RmField;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={{58{1'b0}},imm6};
+                        uop.imm_valid=1'b1;
+                        uop.sets_flags=1'b0;
+                        uop.last_uop=1'b0;
+                    end
+
+                    1: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_OR;
+                        uop.imm_valid=1'b0;
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.rs2=RmField;
+                        uop.rs2_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+
+            I_EOR: begin
+                // Shift 2nd register, xor 1st and 2nd
+                case(uop_counter)
+                    0: begin
+                        uop.fu_select=FU_SHIFTER;
+                        case (instr[23:22])
+                            2'b00: uop.fu_op=OP_LSL;
+                            2'b01: uop.fu_op=OP_LSR;
+                            2'b10: uop.fu_op=OP_ASR;
+                            // 2'b11 reserved (UNDEF)
+                        endcase
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=RmField;
+                        uop.rs1_valid=1'b1;
+                        uop.imm={{58{1'b0}},imm6};
+                        uop.imm_valid=1'b1;
+                        uop.sets_flags=1'b0;
+                        uop.last_uop=1'b0;
+                    end
+
+                    1: begin
+                        uop.fu_select=FU_LOGIC;
+                        uop.fu_op=OP_XOR;
+                        uop.imm_valid=1'b0;
+                        uop.rd=Rd_field;
+                        uop.r_dest_valid=1'b1;
+                        uop.rs1=Rn_field;
+                        uop.rs1_valid=1'b1;
+                        uop.rs2=RmField;
+                        uop.rs2_valid=1'b1;
+                        uop.last_uop=1'b1;
+                    end
+                endcase
+            end
+
+            I_ANDS: begin
+                // Shift 2nd register, and W flags
+                0: begin
+                    uop.fu_select=FU_SHIFTER;
+                    case (instr[23:22])
+                        2'b00: uop.fu_op=OP_LSL;
+                        2'b01: uop.fu_op=OP_LSR;
+                        2'b10: uop.fu_op=OP_ASR;
+                        // 2'b11 reserved (UNDEF)
+                    endcase
+                    uop.rd=Rd_field;
+                    uop.r_dest_valid=1'b1;
+                    uop.rs1=RmField;
+                    uop.rs1_valid=1'b1;
+                    uop.imm={{58{1'b0}},imm6};
+                    uop.imm_valid=1'b1;
+                    uop.sets_flags=1'b0;
+                    uop.last_uop=1'b0;
+                end
+
+                1: begin
+                    uop.fu_select=FU_LOGIC;
+                    uop.fu_op=OP_AND;
+                    uop.imm_valid=1'b0;
+                    uop.rd=Rd_field;
+                    uop.r_dest_valid=1'b1;
+                    uop.rs1=Rn_field;
+                    uop.rs1_valid=1'b1;
+                    uop.rs2=RmField;
+                    uop.rs2_valid=1'b1;
+                    uop.sets_flags=1'b1;
+                    uop.last_uop=1'b1;
+                end
+            end
+
+            I_UBFM: begin
+                // Pick lsl or lsr uop
+                uop.fu_select=FU_SHIFTER;
+                // case (instr[23:22])
+                //     2'b00: uop.fu_op=OP_LSL;
+                //     2'b01: uop.fu_op=OP_LSR;
+                //     2'b10: uop.fu_op=OP_ASR;
+                //     // 2'b11 reserved (UNDEF)
+                // endcase
+                uop.rd=Rd_field;
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.rs2_valid=1'b0;
+                // TODO: Should be the shift amt, need to check if
+                // ubfm supports bit transfers or just shifts 
+                // given that it can only use lsl or lsr
+                uop.imm={{58{1'b0}},imm6};
+                uop.imm_valid=1'b1;
+                uop.sets_flags=1'b0;
+                uop.last_uop=1'b1;
+            end
+
+            I_LSLV: begin
+                // Pick lsl or lsr uop
+                uop.fu_select=FU_SHIFTER;
+                // case (instr[23:22])
+                //     2'b00: uop.fu_op=OP_LSL;
+                //     2'b01: uop.fu_op=OP_LSR;
+                //     2'b10: uop.fu_op=OP_ASR;
+                //     // 2'b11 reserved (UNDEF)
+                // endcase
+                uop.rd=Rd_field;
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.rs2=Rm_field;
+                uop.rs2_valid=1'b1;
+                uop.imm_valid=1'b0;
+                uop.sets_flags=1'b0;
+                uop.last_uop=1'b1;
+            end
+
+            I_LSRV: begin
+                // Pick lsl or lsr uop
+                uop.fu_select=FU_SHIFTER;
+                // case (instr[23:22])
+                //     2'b00: uop.fu_op=OP_LSL;
+                //     2'b01: uop.fu_op=OP_LSR;
+                //     2'b10: uop.fu_op=OP_ASR;
+                //     // 2'b11 reserved (UNDEF)
+                // endcase
+                uop.rd=Rd_field;
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.rs2=Rm_field;
+                uop.rs2_valid=1'b1;
+                uop.imm_valid=1'b0;
+                uop.sets_flags=1'b0;
+                uop.last_uop=1'b1;
+            end
+
+            I_ASRV: begin
+                // Pick lsl or lsr uop
+                uop.fu_select=FU_SHIFTER;
+                // case (instr[23:22])
+                //     2'b00: uop.fu_op=OP_LSL;
+                //     2'b01: uop.fu_op=OP_LSR;
+                //     2'b10: uop.fu_op=OP_ASR;
+                //     // 2'b11 reserved (UNDEF)
+                // endcase
+                uop.rd=Rd_field;
+                uop.r_dest_valid=1'b1;
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.rs2=Rm_field;
+                uop.rs2_valid=1'b1;
+                uop.imm_valid=1'b0;
+                uop.sets_flags=1'b0;
+                uop.last_uop=1'b1;
+            end
+
+
 
             // =============================================================
             // CONTROL TRANSFER
