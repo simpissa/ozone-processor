@@ -2,3 +2,4 @@ obj_dir
 .vscode
 backend/tests/shifter_tests/obj_dir
 backend/tests/logic_tests/obj_dir
+backend/tests/agu_tests/obj_dir

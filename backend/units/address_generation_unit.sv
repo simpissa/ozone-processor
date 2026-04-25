@@ -23,12 +23,12 @@ module agu #(
     output logic [63:0] final_addr, // Resulting addr
     output logic [ID_LEN-1:0] memop_id
 );
-    logic [$clog2(DELAY)-1:0] counter;
+    logic [$clog2(DELAY):0] counter;
     logic pending;
 
     // If no addr calculation pending or if output being extracted, can accept input
     assign ready_out=!pending||valid_out&&ready_in;
-    assign valid_out = counter==(DELAY-1)&&pending;
+    assign valid_out = counter==($clog2(DELAY)+1)'(DELAY-1)&&pending;
 
     always_ff @(posedge clk) begin
         if (rst || flush) begin
@@ -107,6 +107,9 @@ module agu_rs #(
         if (rst || flush) begin
             curr_entries<=0;
         end else begin
+            logic agu_accepted;
+            logic selected;
+            agu_accepted=valid_out&&ready_in;
             // Get entry from issuer
             if (valid_in && ready_out) begin
                 logic inserted;
@@ -123,20 +126,17 @@ module agu_rs #(
                     end
                 end
             end
-            logic agu_accepted;
-            agu_accepted=valid_out&&ready_in;
             // Accepted input, need to remove the entry from table
             if (agu_accepted) begin
                 curr_entries[sent_index]<=1'b0;
             end
 
             // Choose entry to send to AGU
-            logic selected;
             selected=1'b0;
             for(int j=0;j<RS_ENTRIES;j++) begin
-                if(!selected&&ready_entries[j]&&(!agu_accepted||j!=sent_index)) begin
+                if(!selected&&ready_entries[j]&&(!agu_accepted||j[$clog2(RS_ENTRIES)-1:0]!=sent_index)) begin
                     selected=1'b1;
-                    sent_index<=j;
+                    sent_index<=j[$clog2(RS_ENTRIES)-1:0];
                     addr<=rs[j].addr;
                     imm<=rs[j].imm;
                     memop_id<=rs[j].id;
