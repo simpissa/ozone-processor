@@ -1,6 +1,8 @@
-shifter_test: clean
+obj_dir: clean
 	verilator --binary ../../../types.sv ../../units/logic_unit.sv logic_unitTb.sv
-test:
+test: ./obj_dir
+	g++ make_tests.cpp -o make_tests && make_tests
 	obj_dir/Vtypes
 clean:
+	-rm make_tests
 	-rm -rf ./obj_dir
