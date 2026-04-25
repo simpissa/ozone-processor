@@ -8,13 +8,13 @@ module branchPredictor #(
 	input logic clk,
 	input logic rstN,
 
-	// Prediction query from fetch.
+	// Prediction query from fetch
 	input logic predReqValid,
 	input logic [63:0] predReqPC,
 	output logic predTaken,
 	output logic [63:0] predTarget,
 
-	// Branch resolution update from execute/commit.
+	// Branch resolution update from execute/commit
 	input logic resolveValid,
 	input logic resolveIsBranch,
 	input logic resolveIsConditional,
@@ -77,7 +77,7 @@ module branchPredictor #(
 			ghr <= '0;
 
 			for (i = 0; i < PHT_ENTRIES; i = i + 1)
-				pht[i] <= 2'b01; // weakly not-taken
+				pht[i] = 2'b01; // weakly not-taken
 
 			for (i = 0; i < BTB_ENTRIES; i = i + 1) begin
 				btbValid[i] <= 1'b0;
@@ -87,7 +87,7 @@ module branchPredictor #(
 		end else if (resolveValid && resolveIsBranch) begin
 			if (resolveIsConditional) begin
 				if (resolveTaken) begin
-					if (pht[res_pht_idx] != 2'b11)
+					if (pht[resPhtIdx] != 2'b11)
 						pht[resPhtIdx] <= pht[resPhtIdx] + 2'b01;
 				end else begin
 					if (pht[resPhtIdx] != 2'b00)

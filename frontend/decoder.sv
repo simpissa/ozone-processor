@@ -5,6 +5,8 @@ import types::*;
 typedef enum logic [5:0] {
     I_LDUR, I_STUR, I_MOVK, I_MOVZ, I_ADRP,
     I_ADD, I_ADDS, I_SUB, I_SUBS,
+    I_ORN, I_ORR, I_EOR, I_ANDS, I_UBFM, I_SBFM,
+    I_LSLV, I_LSRV, I_ASRV,
     // TODO: add rest of instructions
     I_B, I_BCOND, I_BL, I_RET,
     I_NOP, I_ERET, I_MRS, I_MSR, I_SVC,
@@ -54,7 +56,7 @@ module decoder (
     // fields
     logic [4:0] Rn_field;
     logic [4:0] RmField;
-    logic [4:0] Rd_field
+    logic [4:0] Rd_field;
 
     logic [25:0] simm26; // b1
     logic [18:0] simm19; // i2, b2
@@ -109,7 +111,7 @@ module decoder (
     always_comb begin
         instr_id = I_UNKNOWN;
 
-        unique casez (instr)
+        casez (instr)
             // Data transfer
             32'b11111000010?????????00??????????: instr_id = I_LDUR;
             32'b11111000000?????????00??????????: instr_id = I_STUR;
@@ -537,7 +539,8 @@ module decoder (
 
             I_ANDS: begin
                 // Shift 2nd register, and W flags
-                0: begin
+                case(uop_counter)
+                    0: begin
                     uop.fu_select=FU_SHIFTER;
                     case (instr[23:22])
                         2'b00: uop.fu_op=OP_LSL;
@@ -568,6 +571,7 @@ module decoder (
                     uop.sets_flags=1'b1;
                     uop.last_uop=1'b1;
                 end
+                endcase
             end
 
             I_UBFM: begin
@@ -606,7 +610,7 @@ module decoder (
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;
@@ -626,7 +630,7 @@ module decoder (
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;
@@ -646,7 +650,7 @@ module decoder (
                 uop.r_dest_valid=1'b1;
                 uop.rs1=Rn_field;
                 uop.rs1_valid=1'b1;
-                uop.rs2=Rm_field;
+                uop.rs2=RmField;
                 uop.rs2_valid=1'b1;
                 uop.imm_valid=1'b0;
                 uop.sets_flags=1'b0;

@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 import types::*;
 
-module fpu_exec_tb #(
+module fpuExecTb #(
   parameter int TAG_LEN = 6
 ) ();
   logic clk;
@@ -108,5 +108,5 @@ module fpu_exec_tb #(
     $finish;
   end
 
-endmodule : fpu_exec_tb
+endmodule : fpuExecTb
 `default_nettype wire
