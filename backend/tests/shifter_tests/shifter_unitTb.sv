@@ -56,7 +56,7 @@ module shifter_tb #(
         .bus_out(bus_out)
     );
 
-    reg [314:0] trace_line; // Every test vectors is exactly this long
+    reg [310:0] trace_line; // Every test vectors is exactly this long
     integer fd;  // file descriptor
 
     initial begin

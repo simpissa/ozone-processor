@@ -4,7 +4,7 @@ import types::*;
 
 module agu #(
     parameter int DELAY = 1, // Should be >=1, number of cycles calculation of AGU takes
-    parameter int ID_LEN = 4
+    parameter int TAG_LEN=6
 ) (
     input  logic        clk,
     input  logic        rst,
@@ -15,24 +15,34 @@ module agu #(
     output logic        ready_out,
     input  logic [63:0] base_addr,
     input  logic [63:0] imm,
-    input  logic [ID_LEN-1:0] id,
-    input fu_op_t op_type,
+    input  logic [TAG_LEN-1:0] dst_tag,
 
-    // output to mem unit i/o
-    output logic         valid_out,
-    input  logic         ready_in,
-    output logic [63:0] final_addr, // Resulting addr
-    output logic [ID_LEN-1:0] memop_id,
-    output fu_op_t mem_op   // OP_LOAD or OP_STORE
+    // interact with bus
+    input  fu_result_t bus_in,
+    output fu_result_t bus_out
 );
     logic [$clog2(DELAY):0] counter;
     logic pending;
 
-    assign mem_op=op_type;
+    logic [TAG_LEN-1:0] result_tag; // Instr tag
+    logic [63:0] result;    // Result of instr
 
-    // If no addr calculation pending or if output being extracted, can accept input
-    assign ready_out=!pending||valid_out&&ready_in;
+    logic valid_out;
     assign valid_out = counter==($clog2(DELAY)+1)'(DELAY-1)&&pending;
+
+    logic ready_in;
+    assign ready_in = bus_in.valid && bus_in.tag==result_tag;
+
+    // If no calculation pending or if output being extracted, can accept input
+    assign ready_out=!pending||valid_out&&ready_in;
+
+    assign bus_out.valid=valid_out;
+    assign bus_out.tag=result_tag;
+    assign bus_out.value=result;
+    assign bus_out.flags=4'b0;
+    assign bus_out.flags_valid=1'b0;
+    assign bus_out.exception=1'b0;
+    assign bus_out.exception_code=4'b0;
 
     always_ff @(posedge clk) begin
         if (rst || flush) begin
@@ -43,8 +53,8 @@ module agu #(
                 // Take in input
                 counter<=0;
                 pending<=1'b1;
-                final_addr<=imm+base_addr;
-                memop_id<=id;
+                result<=imm+base_addr;
+                result_tag<=dst_tag;
             end else if (valid_out&&ready_in) begin
                 // If output and no input, pending variables no longer valid
                 pending<=1'b0;
@@ -59,8 +69,7 @@ endmodule
 
 module agu_rs #(
     parameter int RS_ENTRIES = 4,
-    parameter int TAG_LEN = 6,
-    parameter int ID_LEN = 4
+    parameter int TAG_LEN = 6
 ) (
     input  logic        clk,
     input  logic        rst,
@@ -79,15 +88,14 @@ module agu_rs #(
     input  logic         ready_in,
     output logic [63:0] addr,
     output logic [63:0] imm,
-    output logic [ID_LEN-1:0] memop_id,
-    output fu_op_t op_type
+    output logic [TAG_LEN-1:0] dst_tag
 );
     typedef struct packed {
         logic waiting;
         logic [63:0] addr;
         logic [63:0] imm;
-        logic [TAG_LEN-1:0] tag;  // tag to waiting on
-        logic [ID_LEN-1:0] id;    // mem op id (pass to agu to pass to mem unit)
+        logic [TAG_LEN-1:0] wait_tag;  // tag to waiting on
+        logic [TAG_LEN-1:0] dst_tag;  // tag to write to
     } rs_entry;
 
     rs_entry rs [RS_ENTRIES];
@@ -100,7 +108,7 @@ module agu_rs #(
     generate
         for(i=0;i<RS_ENTRIES;i++) begin: tag_match
             assign ready_entries[i]=curr_entries[i]&&!rs[i].waiting;
-            assign tag_matching[i]=curr_entries[i]&&rs[i].waiting&&bus.valid&&bus.tag==rs[i].tag;
+            assign tag_matching[i]=curr_entries[i]&&rs[i].waiting&&bus.valid&&bus.tag==rs[i].wait_tag;
         end
     endgenerate
 
@@ -126,9 +134,8 @@ module agu_rs #(
                         rs[j].waiting<=!in.src1_ready;
                         rs[j].addr<=in.src1_value;
                         rs[j].imm<=in.imm;
-                        rs[j].tag<=in.src1_tag;
-                        rs[j].id<=in.memop_id;
-                        op_type<=in.fu_op;
+                        rs[j].wait_tag<=in.src1_tag;
+                        rs[j].dst_tag<=in.dest_tag;
                     end
                 end
             end
@@ -145,7 +152,7 @@ module agu_rs #(
                     sent_index<=j[$clog2(RS_ENTRIES)-1:0];
                     addr<=rs[j].addr;
                     imm<=rs[j].imm;
-                    memop_id<=rs[j].id;
+                    dst_tag<=rs[j].dst_tag;
                 end
             end
             valid_out<=selected;
