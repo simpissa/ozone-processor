@@ -37,8 +37,8 @@ end
 
 // Keep the state over, cahnge the names or store in a struct
 logic working_valid;
-logic [63:0] working_arg1;
-logic [63:0] working_arg2;
+logic [64:0] working_arg1;
+logic [64:0] working_arg2;
 logic [TAG_LEN-1:0] working_tag;
 logic [TAG_LEN-1:0] working_flag_tag;
 logic working_should_output;
@@ -49,12 +49,17 @@ fu_op_t working_op;
 always_comb begin
     result.valid = working_valid && valid_out;
     result.tag = working_tag;
-    result.value = working_arg1 + working_arg2;
-    // result.flags = TODO: Flag logic
+    result.value = working_arg1[63:0] + working_arg2[63:0];
+    result.flags[0] = result.value[63];
+    result.flags[1] = result.value == 0;
+    result.flags[2] = result.value[64];
+    result.flags[3] = working_arg1[63] == working_arg2[63] && result.value[63] != working_arg1[63];
     result.flags_valid = working_set_flags;
     //result.exception = ; TODO Exception logic
     // result.exception_code = ;
 end
+
+assign valid_out = count >= DELAY[$clog2(DELAY):0];
 
 logic[$clog2(DELAY):0] count;
 always_ff @(posedge clk) begin
@@ -63,28 +68,28 @@ always_ff @(posedge clk) begin
     end else begin
         // If valid conditions reached set valid_out to true
         // Take in a value to compute, block the alu
-        $display("%b %b", valid_in, ready_out);
+        $display("%b %b, %d", valid_in, ready_out, count);
         if(valid_in && ready_out) begin
             
             ready_out <= 1'b0;
             working_valid <= 1'b1;
-            working_arg1 <= arg1;
-            working_arg2 <= arg2;
+            working_arg1 <= {1'b1, arg1};
+            working_arg2 <= {1'b1, arg2};
             working_tag <= tag;
             working_flag_tag <= flag_tag;
             working_should_output <= should_output;
             working_set_flags <= set_flags;
             working_op <= op;
             count <= 1'b1;
-        end else if(~ready_out) begin
+            $display("NEW VAL");
+        end else if(~ready_out && ~valid_out) begin
             count <= count + 1;
         end
-
-        valid_out <= count >= DELAY[$clog2(DELAY):0];
 
         // Output values to rob and invalidate the results
         if(valid_out && ready_in) begin
             ready_out <= 1'b1;
+            count <= 0;
         end
     end
 end
@@ -167,26 +172,17 @@ always_comb begin
     for(int i = 0; i < RS_ENTRIES; i++) begin: CHECK_READY
         if(~entries[i].valid) begin
             open_valid = 1'b1;
-            index_open = i[$clog2(RS_ENTRIES)-1:0]; // TODO cast to right bits
+            index_open = i[$clog2(RS_ENTRIES)-1:0];
         end else begin
             if(~entries[i].waiting1 && ~entries[i].waiting2) begin
                 ready_valid = 1'b1;
                 index_ready = i[$clog2(RS_ENTRIES)-1:0];
             end
-
-            // TODO does it matter if they are waiting
-            if(cdb_out.valid) begin
-                if(cdb_out.tag == entries[i].reg1_tag) begin
-                    reg1_update_valid = 1'b1;
-                    index_reg1_update = i[$clog2(RS_ENTRIES)-1:0];
-                end else if(cdb_out.tag == entries[i].reg2_tag) begin
-                    reg2_update_valid = 1'b1;
-                    index_reg2_update = i[$clog2(RS_ENTRIES)-1:0];
-                end
-            end
         end
     end
 end
+
+assign issueReady <= (count <= RS_ENTRIES[$clog2(RS_ENTRIES):0]) ? 1'b1 : 1'b0;
 
 logic will_insert = issueValid && issueReady;
 logic will_remove = valid_out && ready_in;
@@ -214,8 +210,6 @@ always_ff @(posedge clk) begin
             // Add 1 to count
         end
 
-        issueReady <= (count <= RS_ENTRIES[$clog2(RS_ENTRIES):0]) ? 1'b1 : 1'b0;
-
         // Valid out should be based on if current output is good
 
         // ALU accepted input, remove rs
@@ -230,10 +224,10 @@ always_ff @(posedge clk) begin
         // Update rs' with cdb values
         for(int i = 0; i < RS_ENTRIES; i++) begin
             if(cdb_out.valid) begin
-                if(cdb_out.tag == entries[i].reg1_tag) begin
+                if(cdb_out.tag == entries[i].reg1_tag && entries[i].waiting1) begin
                     entries[i].arg1 <= cdb_out.value;
                     entries[i].waiting1 <= 1'b0;
-                end else if(cdb_out.tag == entries[i].reg2_tag) begin
+                end else if(cdb_out.tag == entries[i].reg2_tag && entries[i].waiting2) begin
                     entries[i].arg2 <= cdb_out.value;
                     entries[i].waiting2 <= 1'b0;
                 end
