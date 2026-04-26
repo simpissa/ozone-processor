@@ -10,7 +10,7 @@ userspace_entry:
     adrp x1, values
     add  x1, x1, :lo12:values
 
-    fmov d0, #0.0
+    fmov d0, xzr
     mov x2, #0
 
 loop:
