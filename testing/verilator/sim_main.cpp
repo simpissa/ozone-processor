@@ -51,7 +51,6 @@ static bool dmem_load_fault_seen = false;
 // flat 200-entry table at TTBR0_EL1.
 static bool translate_dmem(VTop* top, uint64_t vaddr, uint64_t* paddr) {
     if (top->el) {
-        if (vaddr >= DRAM_SPAN) return false;
         *paddr = vaddr;
         return true;
     }
@@ -192,8 +191,10 @@ int main(int argc, char** argv) {
         if (top->dmem_load_valid && top->dmem_load_ready) {
             uint64_t paddr;
             if (translate_dmem(top, (uint64_t)top->dmem_load_vaddr, &paddr)) {
-                uint64_t data;
-                std::memcpy(&data, &dram_shm[paddr], 8);
+                uint64_t data = 0;
+                if (paddr + 8 <= DRAM_SPAN) {
+                    std::memcpy(&data, &dram_shm[paddr], 8);
+                }
                 top->dmem_load_resp_data  = data;
                 top->dmem_load_resp_id    = top->dmem_load_id;
                 top->dmem_load_resp_valid = 1;
@@ -212,8 +213,10 @@ int main(int argc, char** argv) {
         if (top->dmem_store_valid && top->dmem_store_ready) {
             uint64_t paddr;
             if (translate_dmem(top, (uint64_t)top->dmem_store_vaddr, &paddr)) {
-                uint64_t value = top->dmem_store_value;
-                std::memcpy(&dram_shm[paddr], &value, 8);
+                if (paddr + 8 <= DRAM_SPAN) {
+                    uint64_t value = top->dmem_store_value;
+                    std::memcpy(&dram_shm[paddr], &value, 8);
+                }
             } else {
                 dmem_fault_seen = true;
                 std::cerr << "[Verilator] dmem store translation failed for vaddr=0x"
