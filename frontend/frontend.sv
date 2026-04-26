@@ -11,6 +11,7 @@ module frontend (
     input  logic [63:0] redirectPC,
 
     input  logic [63:0] ttbr0_el1,
+    input  logic        el,
 
     // Instruction cache/line-fill path used by fetch.
     input  logic [511:0] imem_rdata_i,
@@ -50,6 +51,8 @@ module frontend (
     logic [63:0] fetch_pc;
     logic fetch_valid;
     logic fetch_ready;
+    logic fetch_pred_taken;
+    logic [63:0] fetch_pred_target;
 
     logic bp_req_valid;
     logic [63:0] bp_req_pc;
@@ -62,10 +65,22 @@ module frontend (
     logic itlb_miss;
     logic [63:0] itlb_vaddr;
     logic itlb_valid;
+    logic itlb_mem_valid_raw;
+    logic fetch_itlb_ready;
+    logic fetch_itlb_hit;
+    logic [29:0] fetch_itlb_paddr;
+    logic fetch_itlb_miss;
+
+    assign fetch_itlb_ready = el ? 1'b1 : itlb_ready;
+    assign fetch_itlb_hit   = el ? itlb_valid : itlb_hit;
+    assign fetch_itlb_paddr = el ? itlb_vaddr[29:0] : itlb_paddr;
+    assign fetch_itlb_miss  = el ? 1'b0 : itlb_miss;
+
+    assign itlb_mem_valid_o = el ? 1'b0 : itlb_mem_valid_raw;
 
     assign pc_out = fetch_pc;
-    assign pred_taken_out = pred_taken;
-    assign pred_target_out = pred_target;
+    assign pred_taken_out = fetch_pred_taken;
+    assign pred_target_out = fetch_pred_target;
 
     branchPredictor bp (
         .clk(clk),
@@ -86,7 +101,7 @@ module frontend (
         .clk(clk),
         .reset(rst),
         .ttbr0(ttbr0_el1),
-        .fetch_valid_i(itlb_valid),
+        .fetch_valid_i(el ? 1'b0 : itlb_valid),
         .fetch_vaddr_i(itlb_vaddr),
         .fetch_hit_o(itlb_hit),
         .fetch_paddr_o(itlb_paddr),
@@ -96,7 +111,7 @@ module frontend (
         .mem_valid_i(itlb_mem_valid_i),
         .mem_rdata_i(itlb_mem_rdata_i),
         .mem_addr_o(itlb_mem_addr_o),
-        .mem_valid_o(itlb_mem_valid_o)
+        .mem_valid_o(itlb_mem_valid_raw)
     );
 
     fetch fetchStage (
@@ -108,16 +123,18 @@ module frontend (
         .dcode_ready_i(fetch_ready),
         .dcode_instr_o(fetch_instr),
         .dcode_pc_o(fetch_pc),
+        .dcode_pred_taken_o(fetch_pred_taken),
+        .dcode_pred_target_o(fetch_pred_target),
         .dcode_valid_o(fetch_valid),
         .imem_rdata_i(imem_rdata_i),
         .imem_ready_i(imem_ready_i),
         .imem_valid_i(imem_valid_i),
         .imem_valid_o(imem_valid_o),
         .imem_addr_o(imem_addr_o),
-        .itlb_ready_i(itlb_ready),
-        .itlb_hit_i(itlb_hit),
-        .itlb_paddr_i(itlb_paddr),
-        .itlb_miss_i(itlb_miss),
+        .itlb_ready_i(fetch_itlb_ready),
+        .itlb_hit_i(fetch_itlb_hit),
+        .itlb_paddr_i(fetch_itlb_paddr),
+        .itlb_miss_i(fetch_itlb_miss),
         .itlb_vaddr_o(itlb_vaddr),
         .itlb_valid_o(itlb_valid),
         .bp_taken_i(pred_taken),

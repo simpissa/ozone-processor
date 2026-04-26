@@ -26,6 +26,8 @@ module fetch (
     input logic         dcode_ready_i,
     output logic [31:0] dcode_instr_o,
     output logic [63:0] dcode_pc_o,
+    output logic        dcode_pred_taken_o,
+    output logic [63:0] dcode_pred_target_o,
     output logic        dcode_valid_o,
     
     // backend
@@ -61,17 +63,23 @@ module fetch (
         logic [63:0] vaddr;
         logic [29:0] paddr;
         logic [31:0] instr;
+        logic        pred_taken;
+        logic [63:0] pred_target;
     } stageiii_t;
 
     typedef struct packed {
         logic valid;
         logic [63:0] vaddr;
         logic [29:0] paddr;
+        logic pred_taken;
+        logic [63:0] pred_target;
     } stageii_t;
 
     typedef struct packed {
         logic valid;
         logic [63:0] vaddr;
+        logic pred_taken;
+        logic [63:0] pred_target;
     } stagei_t;
 
 
@@ -112,6 +120,8 @@ module fetch (
             stage4.paddr <= stage3.paddr;
             assert(paddr_offset[8:0] <= 480);
             stage4.instr <= imem_rdata_i[paddr_offset[8:0] +: 32];
+            stage4.pred_taken <= stage3.pred_taken;
+            stage4.pred_target <= stage3.pred_target;
 
             // move stage 3 out
             stage3.valid <= 0;
@@ -125,16 +135,22 @@ module fetch (
             stage3.valid <= stage2.valid;
             stage3.vaddr <= stage2.vaddr;
             stage3.paddr <= itlb_paddr_i;
+            stage3.pred_taken <= stage2.pred_taken;
+            stage3.pred_target <= stage2.pred_target;
 
             stage2.valid <= 0;
             stage2.vaddr <= '0;
             stage2.paddr <= '0;
+            stage2.pred_taken <= 1'b0;
+            stage2.pred_target <= '0;
         end
         
         // move stage 1 -> stage 2, move stage 1 out
         if (~stage1_stall) begin
             stage2.valid <= stage1.valid;
             stage2.vaddr <= stage1.vaddr;
+            stage2.pred_taken <= stage1.pred_taken;
+            stage2.pred_target <= stage1.pred_target;
         end
 
         if (flush) begin
@@ -142,21 +158,29 @@ module fetch (
             stage4.vaddr <= '0;
             stage4.paddr <= '0;
             stage4.instr <= '0;
+            stage4.pred_taken <= 1'b0;
+            stage4.pred_target <= '0;
 
             stage3.valid <= 0;
             stage3.vaddr <= '0;
             stage3.paddr <= '0;
             stage3.instr <= '0;
+            stage3.pred_taken <= 1'b0;
+            stage3.pred_target <= '0;
 
             stage2.valid <= 0;
             stage2.vaddr <= '0;
             stage2.paddr <= '0;
+            stage2.pred_taken <= 1'b0;
+            stage2.pred_target <= '0;
             
             if (DBG)
                 $display("Flushed... setting pc to %x", exe_target_i);
             
             // stage1 is always set valid
             pc <= exe_target_i;
+            imem_valid_o <= 1'b0;
+            itlb_valid_o <= 1'b0;
         end
 
     endtask
@@ -176,6 +200,8 @@ module fetch (
 
     assign stage1.valid = 1;
     assign stage1.vaddr = pc;
+    assign stage1.pred_taken = bp_taken_i;
+    assign stage1.pred_target = bp_target_i;
 
     assign bp_valid_o = stage1.valid;
     assign bp_vaddr_o = pc;
@@ -183,6 +209,8 @@ module fetch (
     assign dcode_valid_o = stage4.valid;
     assign dcode_pc_o    = stage4.vaddr;
     assign dcode_instr_o = stage4.instr;
+    assign dcode_pred_taken_o = stage4.pred_taken;
+    assign dcode_pred_target_o = stage4.pred_target;
 
     logic DBG;
     initial begin
@@ -241,8 +269,8 @@ module fetch (
                 stage2.paddr <= itlb_paddr_i;
 
                 // do we actually need to query?
-                if (!(imem_valid_i && (itlb_paddr_i > imem_addr_o) && ((itlb_paddr_i - imem_addr_o) * 8 <= 480))) begin
-                    imem_addr_o <= itlb_paddr_i;
+                if (!(imem_valid_i && (itlb_paddr_i[29:6] == imem_addr_o[29:6]))) begin
+                    imem_addr_o <= {itlb_paddr_i[29:6], 6'b0};
                     imem_valid_o <= 1;
 
                 end

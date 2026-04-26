@@ -190,6 +190,13 @@ module core_backend (
     logic [63:0] load_complete_data;
     logic store_complete_pending;
     logic [ROB_TAG_W-1:0] store_complete_tag;
+    logic DBG;
+
+    initial begin
+        if (!$value$plusargs("BDEBUG=%b", DBG)) begin
+            DBG = 1'b0;
+        end
+    end
 
     assign mem_issue_ready = (issue_payload_bus.fu_op == OP_LOAD)  ? lq_ready :
                              (issue_payload_bus.fu_op == OP_STORE) ? sq_ready : 1'b0;
@@ -563,6 +570,7 @@ module core_backend (
 
     store_queue i_store_queue (
         .rst(rst),
+        .flush(flush),
         .clk_in(clk),
         .cdb_i(cdb_result),
         .payload_valid_i(mem_issue_valid && (issue_payload_bus.fu_op == OP_STORE)),
@@ -575,6 +583,8 @@ module core_backend (
         .search_value(sq_forward_data),
         .lq_head_age(lq_head_age),
         .lq_head_valid(lq_head_valid),
+        .commit_valid(commit_store),
+        .commit_tag(commit_store_tag),
         .write_vaddr(dmem_store_vaddr),
         .write_value(dmem_store_value),
         .ready_in(dmem_store_ready),
@@ -620,5 +630,27 @@ module core_backend (
         .fu_grant(fu_grant),
         .cdb_out(cdb_result)
     );
+
+    always_ff @(posedge clk) begin
+        if (DBG && rstN && valid_in && !ready_out) begin
+            $display("Backend stall: pc=%016x fu=%0d op=%0d rob_ready=%0b rename_valid=%0b issue_ready=%0b lq_ready=%0b sq_ready=%0b mem_issue_ready=%0b alu_ready=%0b logic_ready=%0b agu_ready=%0b fu_valid=%06b grant=%06b",
+                     pc_in, uop_in.fu_select, uop_in.fu_op, rob_ready, rename_valid,
+                     issue_ready_to_rename, lq_ready, sq_ready, mem_issue_ready,
+                     alu_issue_ready, logic_issue_ready, agu_issue_ready,
+                     {fu_results[5].valid, fu_results[4].valid, fu_results[3].valid, fu_results[2].valid, fu_results[1].valid, fu_results[0].valid},
+                     fu_grant);
+        end
+        if (DBG && rstN && cdb_result.valid) begin
+            $display("CDB: tag=%0d value=%016x flags=%0h exception=%0b", cdb_result.tag, cdb_result.value, cdb_result.flags, cdb_result.exception);
+        end
+        if (DBG && rstN && dmem_load_valid) begin
+            $display("DMEM load: id=%0d vaddr=%012x ready=%0b received=%0b resp_valid=%0b",
+                     dmem_load_id, dmem_load_vaddr, dmem_load_ready, dmem_load_received, dmem_load_resp_valid);
+        end
+        if (DBG && rstN && dmem_store_valid) begin
+            $display("DMEM store: vaddr=%012x value=%016x ready=%0b",
+                     dmem_store_vaddr, dmem_store_value, dmem_store_ready);
+        end
+    end
 
 endmodule

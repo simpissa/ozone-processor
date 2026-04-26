@@ -9,19 +9,23 @@ start:
     ldur x0, [x10, #0]
     msr  sp_el0, x0
 
-    // 2. Set SPSR_EL1 (Target EL0)
+    // 2. Set SP_EL1
+    ldur x0, [x10, #8]
+    msr  sp_el1, x0
+
+    // 3. Set SPSR_EL1 (Target EL0)
     ldur x0, [x10, #24]
     msr  spsr_el1, x0
 
-    // 3. Set ELR_EL1 (Userspace entry point)
+    // 4. Set ELR_EL1 (Userspace entry point)
     ldur x0, [x10, #32]
     msr  elr_el1, x0
 
-    // 4. Set VBAR_EL1
+    // 5. Set VBAR_EL1
     ldur x0, [x10, #16]
     msr  vbar_el1, x0
 
-    // 5. Populate Page Table at TTBR0_EL1
+    // 6. Populate Page Table at TTBR0_EL1
     ldur x1, [x10, #40]      // _TTBR0_EL1
     
     ldur x2, [x10, #32]      // userspace_entry (_ELR_EL1)
@@ -50,10 +54,10 @@ start:
     cmp  x3, x4
     b.ne .Lfill_pt
 
-    // 6. Set initial LR for userspace to 0 (terminate on RET)
+    // 7. Set initial LR for userspace to 0 (terminate on RET)
     movz x30, #0
 
-    // 7. ERET to Userspace
+    // 8. ERET to Userspace
     eret
 
 .section .exception_vectors, "ax"

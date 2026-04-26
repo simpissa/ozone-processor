@@ -168,6 +168,8 @@ module alu_rs #(
         logic valid;
         logic waiting1;
         logic waiting2;
+        logic waiting1_flags;
+        logic waiting2_flags;
         logic [63:0] arg1;
         logic [63:0] arg2;
         logic [TAG_LEN-1:0] reg1_tag;
@@ -214,6 +216,8 @@ module alu_rs #(
                         curr_entries[j] <= 1'b1;
                         entries[j].waiting1 <= payload_bus.src1_valid && !payload_bus.src1_ready;
                         entries[j].waiting2 <= payload_bus.src2_valid && !payload_bus.src2_ready;
+                        entries[j].waiting1_flags <= payload_bus.src1_is_flags;
+                        entries[j].waiting2_flags <= payload_bus.src2_is_flags;
                         entries[j].arg1 <= payload_bus.src1_value;
                         entries[j].arg2 <= payload_bus.src2_valid ? payload_bus.src2_value :
                                            (payload_bus.imm_valid ? payload_bus.imm : 64'd0);
@@ -256,11 +260,11 @@ module alu_rs #(
                 for (int j = 0; j < RS_ENTRIES; j++) begin
                     if (curr_entries[j] && entries[j].waiting1 && cdb_out.tag == entries[j].reg1_tag) begin
                         entries[j].waiting1 <= 1'b0;
-                        entries[j].arg1 <= cdb_out.value;
+                        entries[j].arg1 <= entries[j].waiting1_flags ? {{60{1'b0}}, cdb_out.flags} : cdb_out.value;
                     end
                     if (curr_entries[j] && entries[j].waiting2 && cdb_out.tag == entries[j].reg2_tag) begin
                         entries[j].waiting2 <= 1'b0;
-                        entries[j].arg2 <= cdb_out.value;
+                        entries[j].arg2 <= entries[j].waiting2_flags ? {{60{1'b0}}, cdb_out.flags} : cdb_out.value;
                     end
                 end
             end

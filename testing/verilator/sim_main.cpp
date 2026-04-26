@@ -69,6 +69,7 @@ static void mirror_state(VTop* top) {
     for (int i = 0; i < 31; i++) {
         *(volatile uint64_t*)(csr_shm + CSR_X_REGS_BASE + (i * 8)) = top->x_regs[i];
     }
+    *(volatile uint64_t*)(csr_shm + CSR_PC)        = top->debug_commit_pc;
     *(volatile uint64_t*)(csr_shm + CSR_SP_EL0)    = top->sprf[SPR_SP_EL0];
     *(volatile uint64_t*)(csr_shm + CSR_SP_EL1)    = top->sprf[SPR_SP_EL1];
     *(volatile uint64_t*)(csr_shm + CSR_ELR_EL1)   = top->sprf[SPR_ELR_EL1];
@@ -76,7 +77,9 @@ static void mirror_state(VTop* top) {
     *(volatile uint64_t*)(csr_shm + CSR_ESR_EL1)   = top->sprf[SPR_ESR_EL1];
     *(volatile uint64_t*)(csr_shm + CSR_TTBR0_EL1) = top->sprf[SPR_TTBR0_EL1];
     *(volatile uint64_t*)(csr_shm + CSR_VBAR_EL1)  = top->sprf[SPR_VBAR_EL1];
-    *(volatile uint64_t*)(csr_shm + CSR_ACTLR_EL1) = top->sprf[SPR_ACTLR_EL1];
+    *(volatile uint64_t*)(csr_shm + CSR_ACTLR_EL1) = top->done
+        ? top->debug_commit_spr_value
+        : top->sprf[SPR_ACTLR_EL1];
     *(volatile uint32_t*)(csr_shm + CSR_PSTATE)    = ((uint32_t)top->pstate_flags) << 28;
 }
 
@@ -112,12 +115,26 @@ int main(int argc, char** argv) {
 
     bool prev_reset = true;
     bool done_latched = false;
+    bool imem_line_valid = false;
+    bool itlb_line_valid = false;
+    uint64_t cycles = 0;
+    bool tdebug = false;
+    for (int i = 1; i < argc; i++) {
+        if (std::strcmp(argv[i], "+TDEBUG") == 0) {
+            tdebug = true;
+        }
+    }
 
     while (!Verilated::gotFinish()) {
+        cycles++;
         // Sample host inputs from CSR.
         uint32_t reset = *(volatile uint32_t*)(csr_shm + CSR_RESET_REG);
         top->reset   = reset;
         top->startPC = *(volatile uint64_t*)(csr_shm + CSR_START_PC);
+        if (reset) {
+            imem_line_valid = false;
+            itlb_line_valid = false;
+        }
 
         if (reset && !prev_reset) {
             std::cout << "[Verilator] Reset asserted by host" << std::endl;
@@ -140,10 +157,9 @@ int main(int argc, char** argv) {
             } else {
                 std::memset(&top->imem_resp_rdata, 0, 64);
             }
-            top->imem_resp_valid = 1;
-        } else {
-            top->imem_resp_valid = 0;
+            imem_line_valid = true;
         }
+        top->imem_resp_valid = imem_line_valid ? 1 : 0;
 
         if (top->itlb_req_valid) {
             uint64_t addr = ((uint64_t)top->itlb_req_addr) & ~0x3FULL;
@@ -152,10 +168,9 @@ int main(int argc, char** argv) {
             } else {
                 std::memset(&top->itlb_resp_rdata, 0, 64);
             }
-            top->itlb_resp_valid = 1;
-        } else {
-            top->itlb_resp_valid = 0;
+            itlb_line_valid = true;
         }
+        top->itlb_resp_valid = itlb_line_valid ? 1 : 0;
 
         // Default load response off; drive it the same cycle a load fires.
         top->dmem_load_received  = 0;
@@ -188,15 +203,43 @@ int main(int argc, char** argv) {
 
         top->eval();
 
-        mirror_state(top);
+        if (!done_latched) {
+            mirror_state(top);
+        }
+        if (tdebug && !reset && ((cycles & 0xfffffULL) == 0)) {
+            std::cout << "[TDEBUG] cyc=" << cycles
+                      << " el=" << (int)top->el
+                      << " fe_pc=0x" << std::hex << (uint64_t)top->debug_fe_pc
+                      << " fe_v=" << std::dec << (int)top->debug_fe_valid
+                      << " fe_r=" << (int)top->debug_fe_ready
+                      << " flush=" << (int)top->debug_flush
+                      << " redir=0x" << std::hex << (uint64_t)top->debug_redirect_pc
+                      << " fetch_pc=0x" << (uint64_t)top->debug_fetch_pc
+                      << " itlb_hit=" << std::dec << (int)top->debug_itlb_hit
+                      << " itlb_ready=" << (int)top->debug_itlb_ready
+                      << " itlb_valid=" << (int)top->debug_itlb_valid
+                      << " itlb_pending=" << (int)top->debug_itlb_pending
+                      << " imem_req=" << std::dec << (int)top->imem_req_valid
+                      << " imem_addr=0x" << std::hex << (uint64_t)top->imem_req_addr
+                      << " itlb_req=" << std::dec << (int)top->itlb_req_valid
+                      << " itlb_addr=0x" << std::hex << (uint64_t)top->itlb_req_addr
+                      << " itlb_pte=0x" << (uint64_t)top->debug_itlb_pte
+                      << " x0=0x" << (uint64_t)top->x_regs[0]
+                      << " x1=0x" << (uint64_t)top->x_regs[1]
+                      << " x3=0x" << (uint64_t)top->x_regs[3]
+                      << " actlr=0x" << (uint64_t)top->sprf[SPR_ACTLR_EL1]
+                      << std::dec << std::endl;
+        }
         if (top->done && !done_latched) {
             done_latched = true;
             std::cout << "[Verilator] done asserted; final state mirrored to CSR" << std::endl;
         }
         *(volatile uint32_t*)(csr_shm + CSR_STATUS_REG) = done_latched ? CSR_DONE_BIT : 0;
 
-        // Yield occasionally so the host can update SHM.
-        usleep(1);
+        // Yield occasionally so the host can update SHM without throttling every RTL tick.
+        if ((cycles & 0x3ffULL) == 0) {
+            usleep(1);
+        }
     }
 
     munmap(dram_shm, DRAM_SPAN);

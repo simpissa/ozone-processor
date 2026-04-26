@@ -77,7 +77,7 @@ module branchPredictor #(
 			ghr <= '0;
 
 			for (i = 0; i < PHT_ENTRIES; i = i + 1)
-				pht[i] = 2'b01; // weakly not-taken
+				pht[i] = 2'b10; // weakly taken once a BTB entry exists
 
 			for (i = 0; i < BTB_ENTRIES; i = i + 1) begin
 				btbValid[i] = 1'b0;

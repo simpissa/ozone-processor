@@ -66,6 +66,7 @@ module ozone(
         .flush(flush),
         .redirectPC(redirect_pc),
         .ttbr0_el1(ttbr0_el1),
+        .el(el_out),
         .imem_rdata_i(imem_rdata_i),
         .imem_ready_i(imem_ready_i),
         .imem_valid_i(imem_valid_i),

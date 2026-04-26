@@ -6,8 +6,8 @@ COMMON   = $(FPU_DIR)/src/common_cells
 
 FPU_PKG          := $(FPU_DIR)/src/fpnew_pkg.sv
 FPU_SRCS         := $(shell find $(FPU_DIR)/src -maxdepth 1 -name '*.sv' ! -name 'fpnew_pkg.sv' | sort)
-COMMON_CELLS_PKG := $(COMMON)/src/cf_math_pkg.sv $(COMMON)/src/ecc_pkg.sv
-COMMON_CELLS     := $(shell find $(COMMON)/src -name '*.sv' ! -name 'cf_math_pkg.sv' ! -name 'ecc_pkg.sv' | sort)
+COMMON_CELLS_PKG := $(COMMON)/src/cf_math_pkg.sv $(COMMON)/src/ecc_pkg.sv $(COMMON)/src/cb_filter_pkg.sv
+COMMON_CELLS     := $(shell find $(COMMON)/src -name '*.sv' ! -name 'cf_math_pkg.sv' ! -name 'ecc_pkg.sv' ! -name 'cb_filter_pkg.sv' | sort)
 OPENE906         := $(shell find $(FPU_DIR)/vendor/opene906 -name '*.v' | sort)
 OPENC910         := $(shell find $(FPU_DIR)/vendor/openc910 -name '*.v' | sort)
 

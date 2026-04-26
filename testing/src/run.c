@@ -120,7 +120,6 @@ static void* map_bridge(int fd, uint64_t base, uint64_t span) {
 }
 
 void fpga_run(ozone_config_t* config, const char* binary_path) {
-    (void)config;
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0) {
         plog(LOG_ERROR, "Failed to open /dev/mem. Are you root?\n");
@@ -135,9 +134,9 @@ void fpga_run(ozone_config_t* config, const char* binary_path) {
         common_load_and_run(binary_path);
     }
 
-    // Mappings stay live so callers (e.g., fpga_get_state) can read state.
-    // Process exit reclaims them.
-    (void)fd;
+    if (g_dram_ptr) munmap(g_dram_ptr, HPS2FPGA_AXI_SPAN);
+    if (g_csr_ptr) munmap(g_csr_ptr, LWHPS2FPGA_AXI_SPAN);
+    close(fd);
 }
 
 void verilator_run(ozone_config_t* config, const char* binary_path) {

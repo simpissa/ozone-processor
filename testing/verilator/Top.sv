@@ -2,7 +2,7 @@
 
 import types::*;
 
-// Verilator wrapper around the ozone processor. Exposes the three real
+// RTL wrapper around the ozone processor. Exposes the three real
 // memory channels (imem, itlb_mem, dmem) plus committed architectural state
 // to the C++ testbench, which serves memory from a shared-memory region.
 module Top (
@@ -45,7 +45,20 @@ module Top (
     output logic [63:0]  x_regs [0:30],
     output logic [63:0]  sprf   [0:7],
     output logic [3:0]   pstate_flags,
-    output logic         el
+    output logic         el,
+    output logic [63:0]  debug_fe_pc,
+    output logic         debug_fe_valid,
+    output logic         debug_fe_ready,
+    output logic         debug_flush,
+    output logic [63:0]  debug_redirect_pc,
+    output logic [63:0]  debug_fetch_pc,
+    output logic         debug_itlb_hit,
+    output logic         debug_itlb_ready,
+    output logic         debug_itlb_valid,
+    output logic         debug_itlb_pending,
+    output logic [63:0]  debug_itlb_pte,
+    output logic [63:0]  debug_commit_pc,
+    output logic [63:0]  debug_commit_spr_value
 );
 
     ozone proc (
@@ -94,5 +107,20 @@ module Top (
 
     assign pstate_flags = proc.be.i_rename.flags_reg;
     assign el           = proc.be.i_rename.el_reg;
+    assign debug_fe_pc       = proc.fe_pc;
+    assign debug_fe_valid    = proc.fe_valid;
+    assign debug_fe_ready    = proc.fe_ready;
+    assign debug_flush       = proc.flush;
+    assign debug_redirect_pc = proc.redirect_pc;
+    assign debug_fetch_pc    = proc.fe.fetchStage.pc;
+    assign debug_itlb_hit    = proc.fe.fetch_itlb_hit;
+    assign debug_itlb_ready  = proc.fe.fetch_itlb_ready;
+    assign debug_itlb_valid  = proc.fe.fetchStage.itlb_valid_o;
+    assign debug_itlb_pending = proc.fe.i_itlb.request_pending;
+    assign debug_itlb_pte     = proc.fe.i_itlb.pte;
+    assign debug_commit_pc    = proc.be.i_rob.head_can_commit
+                                ? (proc.be.i_rob.head_entry.pc + 64'd4)
+                                : debug_fe_pc;
+    assign debug_commit_spr_value = proc.be.commit_spr_value;
 
 endmodule

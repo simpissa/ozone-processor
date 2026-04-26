@@ -196,6 +196,7 @@ module rename #(
                 spr_srat_valid[i] <= 1'b0;
                 spr_srat_tag[i]   <= '0;
             end
+            sprf[SPR_TTBR0_EL1[SPR_IDX_W-1:0]] <= 64'h1000;
         end else begin
             // PSTATE transitions at commit. Exception entry forces EL1
             // (flags are saved into SPSR by ROB, see commit_exc_spsr_value).
@@ -204,8 +205,7 @@ module rename #(
             if (rob_commit_is_exception) begin
                 el_reg <= 1'b1;
             end else if (rob_commit_is_eret) begin
-                el_reg    <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][0];
-                flags_reg <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][31:28];
+                el_reg <= sprf[SPR_SPSR_EL1[SPR_IDX_W-1:0]][0];
             end
             if (flush) begin
                 prev_uop_tag <= '0;
@@ -303,7 +303,11 @@ module rename #(
         out_payload.fu_select  = uop.fu_select;
         out_payload.fu_op      = uop.fu_op;
         out_payload.set_flags  = uop.sets_flags;
-        out_payload.dest_valid = uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store;
+        out_payload.dest_valid = (uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store) ||
+                                 !uop.last_uop ||
+                                 uop.is_branch ||
+                                 uop.is_msr ||
+                                 uop.sets_flags;
         out_payload.dest_tag   = (valid_in && can_accept_uop) ? rob_tag : '0;
         out_payload.imm        = uop.imm;
         out_payload.imm_valid  = uop.imm_valid;
@@ -331,6 +335,7 @@ module rename #(
                 end
             end else if (uop.reads_flags) begin
                 out_payload.src1_valid = 1'b1;
+                out_payload.src1_is_flags = 1'b1;
 
                 if (!flags_srat_valid) begin
                     out_payload.src1_ready = 1'b1;
