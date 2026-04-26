@@ -8,7 +8,8 @@ userspace_entry:
     mov x2, #20     // n
 
 fib_loop:
-    cbz x2, done
+    cmp x2, #0
+    b.eq done
     add x3, x0, x1
     mov x0, x1
     mov x1, x3

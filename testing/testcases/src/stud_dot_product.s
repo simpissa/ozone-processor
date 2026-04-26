@@ -1,49 +1,54 @@
-.arch armv8-a
-.text
-.align 2
+        .arch armv8-a
+        .text
+        .align  2
+        .p2align 3,,7
 .global userspace_entry
 
 userspace_entry:
-    adrp x0, weights
-    add  x0, x0, :lo12:weights
 
-    adrp x1, values
-    add  x1, x1, :lo12:values
+    adrp x0, .A
+    add  x0, x0, :lo12:.A
 
-    fmov d0, xzr
-    mov x2, #0
+    adrp x1, .B
+    add  x1, x1, :lo12:.B
 
-loop:
-    cmp x2, #10
-    bge done
+    movz x2, #5
 
-    ldr d1, [x0, x2, lsl #3]   // load double directly
-    ldr d2, [x1, x2, lsl #3]
+    fmov d0, #0.0
+
+.loop:
+    cmp x2, #0
+    b.eq .done
+
+    ldur d1, [x0]
+    ldur d2, [x1]
 
     fmul d3, d1, d2
     fadd d0, d0, d3
 
-    add x2, x2, #1
-    b loop
+    add x0, x0, #8
+    add x1, x1, #8
+    subs x2, x2, #1
 
-done:
+    b .loop
+
+.done:
     ret
 
-.size userspace_entry, .-userspace_entry
 
 .data
 .align 8
 
-.type weights, %object
-.size weights, 80
-weights:
-    .double 10.0, 2.0, 6.0, 4.0, 7.0
-    .double 5.0, 6.0, 7.0, 8.0, 2.0
+.A:
+    .double 1.0
+    .double 2.0
+    .double 3.0
+    .double 4.0
+    .double 5.0
 
-.type values, %object
-.size values, 80
-values:
-    .double 3.0, 10.0, 3.0, 9.0, 3.0
-    .double 3.0, 4.0, 8.0, 7.0, 8.0
-
-.section .note.GNU-stack,"",@progbits
+.B:
+    .double 2.0
+    .double 2.0
+    .double 2.0
+    .double 2.0
+    .double 2.0

@@ -1,25 +1,32 @@
-.arch armv8-a
-.text
-.align 2
+        .arch armv8-a
+        .text
+        .align  2
+        .p2align 3,,7
 .global userspace_entry
+
 userspace_entry:
-    fmov d0, #25.0   // S
-    fmov d1, #5.0    // initial guess
 
-    mov x0, #10      // iterations
+    // compute sqrt(25)
 
-loop:
-    cbz x0, done
+    fmov d0, #25.0     // a
+    fmov d1, #25.0     // x
+    fmov d4, #0.5
 
-    fdiv d2, d0, d1
-    fadd d2, d2, d1
-    fmov d3, #0.5
-    fmul d1, d2, d3
+    movz x2, #6
 
-    sub x0, x0, #1
-    b loop
+.loop:
+    cmp x2, #0
+    b.eq .done
 
-done:
+    fmov d5, #0.04
+    fmul d2, d0, d5    // a * approx(1/x)
+
+    fadd d3, d1, d2
+    fmul d1, d3, d4
+
+    subs x2, x2, #1
+    b .loop
+
+.done:
     fmov d0, d1
     ret
-.size userspace_entry, .-userspace_entry

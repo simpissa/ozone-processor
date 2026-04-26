@@ -1,46 +1,40 @@
-.arch armv8-a
-.text
-.align 2
+        .arch armv8-a
+        .text
+        .align  2
+        .p2align 3,,7
 .global userspace_entry
 
 userspace_entry:
-    adrp x0, arr
-    add  x0, x0, :lo12:arr   // base pointer
 
-    mov x1, #0      // i = 0
-    mov x2, #0      // sum = 0
+    adrp x0, .A
+    add  x0, x0, :lo12:.A
 
-loop:
-    cmp x1, #10
-    bge done
+    movz x1, #0
+    movz x2, #5
 
-    ldr x3, [x0, x1, lsl #3]   // load arr[i]
-    add x2, x2, x3
+.loop:
+    cmp x2, #0
+    b.eq .done
 
-    add x1, x1, #1
-    b loop
+    ldur x3, [x0]
+    add  x1, x1, x3
 
-done:
-    mov x0, x2      // return sum
+    add  x0, x0, #8
+    subs x2, x2, #1
+
+    b .loop
+
+.done:
+    mov x0, x1
     ret
 
-.size userspace_entry, .-userspace_entry
 
 .data
 .align 8
 
-.type arr, %object
-.size arr, 80
-arr:
-    .xword 1
-    .xword 2
-    .xword 3
-    .xword 4
-    .xword 5
-    .xword 6
-    .xword 7
-    .xword 8
-    .xword 9
+.A:
     .xword 10
-
-.section .note.GNU-stack,"",@progbits
+    .xword 20
+    .xword 30
+    .xword 40
+    .xword 50

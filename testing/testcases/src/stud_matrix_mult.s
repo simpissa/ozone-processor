@@ -4,21 +4,28 @@
 .global userspace_entry
 
 userspace_entry:
+    // Load base addresses
     adrp x0, matA
     add  x0, x0, :lo12:matA
 
     adrp x1, matB
     add  x1, x1, :lo12:matB
 
-    ldr d1, [x0]        // A[0][0]
-    ldr d2, [x1]        // B[0][0]
-    fmul d3, d1, d2
+    // Load A[0][0], A[0][1]
+    ldur d0, [x0, #0]   
+    ldur d1, [x0, #8]     
 
-    ldr d1, [x0, #8]    // A[0][1]
-    ldr d2, [x1, #16]   // B[1][0]
-    fmul d4, d1, d2
+    // Load B[0][0], B[1][0]
+    ldur d2, [x1, #0]     
+    ldur d3, [x1, #16]    
 
-    fadd d0, d3, d4
+    
+    fmul d4, d0, d2
+
+    fmul d5, d1, d3
+
+    // Add results
+    fadd d0, d4, d5
 
     ret
 
