@@ -4,7 +4,8 @@ import types::*;
 
 module alu #(
     parameter int unsigned DELAY = 1,
-	parameter int unsigned tagW = 6
+	parameter int unsigned tagW = 6,
+    parameter int unsigned TAG_LEN = 6
 ) (
 	input logic clk,
 	input logic rstN,
@@ -46,7 +47,7 @@ fu_op_t working_op;
 // Assign result in comb, only validate in ff
 
 always_comb begin
-    result.valid = working_valid && ready_out && count >= DELAY;
+    result.valid = working_valid && valid_out;
     result.tag = working_tag;
     result.value = working_arg1 + working_arg2;
     // result.flags = TODO: Flag logic
@@ -62,7 +63,9 @@ always_ff @(posedge clk) begin
     end else begin
         // If valid conditions reached set valid_out to true
         // Take in a value to compute, block the alu
+        $display("%b %b", valid_in, ready_out);
         if(valid_in && ready_out) begin
+            
             ready_out <= 1'b0;
             working_valid <= 1'b1;
             working_arg1 <= arg1;
@@ -73,15 +76,15 @@ always_ff @(posedge clk) begin
             working_set_flags <= set_flags;
             working_op <= op;
             count <= 1'b1;
-        end else if(count >= DELAY && ready_in == 1'b1) begin
-            ready_out <= 1'b1;
-        end else begin
+        end else if(~ready_out) begin
             count <= count + 1;
         end
 
+        valid_out <= count >= DELAY[$clog2(DELAY):0];
+
         // Output values to rob and invalidate the results
         if(valid_out && ready_in) begin
-
+            ready_out <= 1'b1;
         end
     end
 end
@@ -90,7 +93,8 @@ endmodule
 
 module alu_rs #(
     parameter int unsigned RS_ENTRIES = 4,
-	parameter int unsigned tagW = 6
+	parameter int unsigned tagW = 6,
+    parameter int unsigned TAG_LEN = 6
 ) (
 	input logic clk,
 	input logic rstN,
@@ -100,7 +104,7 @@ module alu_rs #(
 	input logic issueValid,
 	output logic issueReady,
     input issue_payload_t payload_bus,
-    input fu_result_t cdb_out
+    input fu_result_t cdb_out,
 
     // Out to execute
     output logic        valid_out,
@@ -154,30 +158,30 @@ always_comb begin
     index_open = 0;
     open_valid = 1'b0;
     index_ready = 0;
-    ready_valid = 1'b0
+    ready_valid = 1'b0;
     reg1_update_valid = 1'b0;
     index_reg1_update = 0;
-    reg2_update_valid = 1'b0
+    reg2_update_valid = 1'b0;
     index_reg2_update = 0;
 
-    for(int i = 0; i < RS_ENTRIES; i++) begin:
+    for(int i = 0; i < RS_ENTRIES; i++) begin: CHECK_READY
         if(~entries[i].valid) begin
             open_valid = 1'b1;
-            index_open = i; // TODO cast to right bits
+            index_open = i[$clog2(RS_ENTRIES)-1:0]; // TODO cast to right bits
         end else begin
             if(~entries[i].waiting1 && ~entries[i].waiting2) begin
                 ready_valid = 1'b1;
-                index_ready = i;
+                index_ready = i[$clog2(RS_ENTRIES)-1:0];
             end
 
             // TODO does it matter if they are waiting
-            if(cbd_out.valid) begin
-                if(cbd_out.tag == entries[i].reg1_tag) begin
-                    reg1_update_valid <= 1'b1;
-                    index_reg1_update <= i;
-                end else if(cbd_out.tag == entries[i].reg2_tag) begin
-                    reg2_update_valid <= 1'b1;
-                    index_reg2_update <= i;
+            if(cdb_out.valid) begin
+                if(cdb_out.tag == entries[i].reg1_tag) begin
+                    reg1_update_valid = 1'b1;
+                    index_reg1_update = i[$clog2(RS_ENTRIES)-1:0];
+                end else if(cdb_out.tag == entries[i].reg2_tag) begin
+                    reg2_update_valid = 1'b1;
+                    index_reg2_update = i[$clog2(RS_ENTRIES)-1:0];
                 end
             end
         end
@@ -205,12 +209,12 @@ always_ff @(posedge clk) begin
             entries[index_open].reg1_tag <= payload_bus.src1_tag;
             entries[index_open].reg2_tag <= payload_bus.src2_tag;
             entries[index_open].result_tag <= payload_bus.dest_tag;
-            entries[index_open].set_flags <= cond;
-            entries[index_open].op <= fu_op; 
+            entries[index_open].set_flags <= payload_bus.set_flags;
+            entries[index_open].op <= payload_bus.fu_op; 
             // Add 1 to count
         end
 
-        issueReady <= count <= RS_ENTRIES ? 1'b1 : 1'b0;
+        issueReady <= (count <= RS_ENTRIES[$clog2(RS_ENTRIES):0]) ? 1'b1 : 1'b0;
 
         // Valid out should be based on if current output is good
 
@@ -227,10 +231,10 @@ always_ff @(posedge clk) begin
         for(int i = 0; i < RS_ENTRIES; i++) begin
             if(cdb_out.valid) begin
                 if(cdb_out.tag == entries[i].reg1_tag) begin
-                    entries[i].arg1 <= cdb.value;
+                    entries[i].arg1 <= cdb_out.value;
                     entries[i].waiting1 <= 1'b0;
-                end else if(cbd_out.tag == entries[i].reg2_tag) begin
-                    entries[i].arg2 <= cdb.value;
+                end else if(cdb_out.tag == entries[i].reg2_tag) begin
+                    entries[i].arg2 <= cdb_out.value;
                     entries[i].waiting2 <= 1'b0;
                 end
             end 
