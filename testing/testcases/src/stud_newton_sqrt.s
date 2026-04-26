@@ -8,9 +8,13 @@ userspace_entry:
 
     // compute sqrt(25)
 
-    fmov d0, #25.0     // a
-    fmov d1, #25.0     // x
-    fmov d4, #0.5
+    adrp x10, .consts
+    add x10, x10, :lo12:.consts
+
+
+    ldur d0, [x10]     // a
+    ldur d1, [x10]     // x
+    ldur d4, [x10, #8]
 
     movz x2, #6
 
@@ -18,7 +22,7 @@ userspace_entry:
     cmp x2, #0
     b.eq .done
 
-    fmov d5, #0.04
+    ldur d5 [x10, #16]
     fmul d2, d0, d5    // a * approx(1/x)
 
     fadd d3, d1, d2
@@ -30,3 +34,11 @@ userspace_entry:
 .done:
     fmov d0, d1
     ret
+
+.data
+.align 8
+
+.consts:
+    .double 25.0
+    .double 0.5
+    .double 0.04

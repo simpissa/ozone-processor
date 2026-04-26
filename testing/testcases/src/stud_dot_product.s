@@ -14,7 +14,9 @@ userspace_entry:
 
     movz x2, #5
 
-    fmov d0, #0.0
+    adrp x10, .consts
+    add x10, x10, :lo12:.consts
+    ldur d0, [x10]
 
 .loop:
     cmp x2, #0
@@ -52,3 +54,6 @@ userspace_entry:
     .double 2.0
     .double 2.0
     .double 2.0
+
+.consts:
+    .double 0.0

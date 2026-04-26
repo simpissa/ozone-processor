@@ -17,7 +17,7 @@ loop:
     b.eq done
 
     ands x2, x0, #1   // check lowest bit
-    beq skip
+    b.eq skip
 
     add x1, x1, #1    // increment count
 
