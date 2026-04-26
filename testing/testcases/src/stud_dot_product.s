@@ -1,4 +1,3 @@
-opal$ cat stud_dot_product.s
         .arch armv8-a
         .text
         .align  2
