@@ -22,7 +22,7 @@ userspace_entry:
     cmp x2, #0
     b.eq .done
 
-    ldur d5 [x10, #16]
+    ldur d5, [x10, #16]
     fmul d2, d0, d5    // a * approx(1/x)
 
     fadd d3, d1, d2
