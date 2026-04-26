@@ -1,0 +1,29 @@
+
+State Machine - |DE10_NANO_SoC_GHRD|soc_system:u0|soc_system_mm_interconnect_0:mm_interconnect_0|altera_merlin_burst_adapter:mm_bridge_0_s0_burst_adapter|altera_merlin_burst_adapter_13_1:altera_merlin_burst_adapter_13_1.burst_adapter|state
+Name state.ST_IDLE state.ST_UNCOMP_WR_SUBBURST state.ST_UNCOMP_TRANS state.ST_COMP_TRANS 
+state.ST_IDLE 0 0 0 0 
+state.ST_COMP_TRANS 1 0 0 1 
+state.ST_UNCOMP_TRANS 1 0 1 0 
+state.ST_UNCOMP_WR_SUBBURST 1 1 0 0 
+
+State Machine - |DE10_NANO_SoC_GHRD|soc_system:u0|soc_system_mm_interconnect_1:mm_interconnect_1|altera_merlin_burst_adapter:hps_0_f2h_sdram0_data_burst_adapter|altera_merlin_burst_adapter_13_1:altera_merlin_burst_adapter_13_1.burst_adapter|state
+Name state.ST_IDLE state.ST_UNCOMP_WR_SUBBURST state.ST_UNCOMP_TRANS state.ST_COMP_TRANS 
+state.ST_IDLE 0 0 0 0 
+state.ST_COMP_TRANS 1 0 0 1 
+state.ST_UNCOMP_TRANS 1 0 1 0 
+state.ST_UNCOMP_WR_SUBBURST 1 1 0 0 
+
+State Machine - |DE10_NANO_SoC_GHRD|soc_system:u0|sdram:avalon_sdr_0|cur_state
+Name cur_state.S_RESP cur_state.S_WAIT_WRITE cur_state.S_ISSUE_WRITE cur_state.S_WAIT_READ cur_state.S_ISSUE_READ cur_state.S_IDLE 
+cur_state.S_IDLE 0 0 0 0 0 0 
+cur_state.S_ISSUE_READ 0 0 0 0 1 1 
+cur_state.S_WAIT_READ 0 0 0 1 0 1 
+cur_state.S_ISSUE_WRITE 0 0 1 0 0 1 
+cur_state.S_WAIT_WRITE 0 1 0 0 0 1 
+cur_state.S_RESP 1 0 0 0 0 1 
+
+State Machine - |DE10_NANO_SoC_GHRD|soc_system:u0|sdram:avalon_sdr_0|read_beats_seen
+Name read_beats_seen.00 read_beats_seen.10 read_beats_seen.01 
+read_beats_seen.00 0 0 0 
+read_beats_seen.01 1 0 1 
+read_beats_seen.10 1 1 0 

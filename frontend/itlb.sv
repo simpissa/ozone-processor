@@ -2,9 +2,9 @@
 
 module itlb #(
     parameter int VA_BITS = 48,
-    localparam VPN_BITS = VA_BITS - 12,
-    localparam PPN_BITS = 18,
-    localparam ENTRIES = 16
+    parameter int VPN_BITS = VA_BITS - 12,
+    parameter int PPN_BITS = 18,
+    parameter int ENTRIES = 16
 ) (
 
     input logic         clk,
