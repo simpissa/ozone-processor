@@ -71,6 +71,12 @@ package types;
         logic [63:0]  imm;            // immediate
         logic         imm_valid;      // whether immediate is used
         logic         src1_is_pc;     // use pc instead of rs1
+        logic         src1_is_sp;     // use current EL stack pointer instead of rs1
+        logic         src2_is_sp;     // use current EL stack pointer instead of rs2
+        logic         dest_is_sp;     // write current EL stack pointer instead of rd
+        logic         src1_is_fp;     // use FP/vector register file for rs1
+        logic         src2_is_fp;     // use FP/vector register file for rs2
+        logic         dest_is_fp;     // write FP/vector register file instead of GPR
         logic         reads_flags;    // uop consumes NZCV
         logic         sets_flags;     // uop produces NZCV
         logic         first_uop;      // first uop of a multi-uop instruction

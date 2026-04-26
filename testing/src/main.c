@@ -93,6 +93,26 @@ static int compare_states(cpu_state_t* sim, cpu_state_t* fpga) {
     return mismatches;
 }
 
+static void dump_check_states(const char* path, const char* dut_name, cpu_state_t* sim, cpu_state_t* dut) {
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        plog(LOG_ERROR, "Couldn't open %s for writing architectural state dump\n", path);
+        return;
+    }
+
+    fprintf(f, "========== SIM Architectural State ==========\n");
+    sim_fprint_state(f, sim);
+
+    fprintf(f, "\n========== %s Architectural State ==========\n", dut_name);
+    uint8_t* original_bitmap = dut->modified_bitmap;
+    dut->modified_bitmap = sim->modified_bitmap;
+    sim_fprint_state(f, dut);
+    dut->modified_bitmap = original_bitmap;
+
+    fclose(f);
+    plog(LOG_INFO, "\nFinal architectural state dump in %s\n", path);
+}
+
 int main(int argc, char* argv[]) {
   if (argc < 3) {
     print_usage(argv[0]);
@@ -169,6 +189,7 @@ int main(int argc, char* argv[]) {
     sim_init(&verilator_cpu, &config);
     verilator_get_state(&verilator_cpu);
 
+    dump_check_states("check_verilator_state.txt", "OZONE", &sim_cpu, &verilator_cpu);
     compare_states(&sim_cpu, &verilator_cpu);
 
     sim_destroy(&sim_cpu);

@@ -174,6 +174,7 @@ module fpuExecute #(
   output logic [TAG_W-1:0] respTag,
   output logic [63:0] respResult,
   output logic [4:0] respFflags,
+  output logic respFlagsValid,
   output logic busy
 );
 
@@ -196,6 +197,41 @@ module fpuExecute #(
   logic busyO;
 
   logic supportedOp;
+  logic [3:0] cmpFlags;
+
+  function automatic logic [3:0] fcmp_flags(input logic [63:0] lhs, input logic [63:0] rhs);
+    logic lhs_nan;
+    logic rhs_nan;
+    logic lhs_zero;
+    logic rhs_zero;
+    logic lhs_neg;
+    logic rhs_neg;
+    logic lhs_lt_rhs;
+    begin
+      lhs_nan  = (lhs[62:52] == 11'h7ff) && (lhs[51:0] != 52'd0);
+      rhs_nan  = (rhs[62:52] == 11'h7ff) && (rhs[51:0] != 52'd0);
+      lhs_zero = (lhs[62:0] == 63'd0);
+      rhs_zero = (rhs[62:0] == 63'd0);
+      lhs_neg  = lhs[63] && !lhs_zero;
+      rhs_neg  = rhs[63] && !rhs_zero;
+
+      if (lhs_nan || rhs_nan) begin
+        fcmp_flags = 4'b0011; // unordered: C=1, V=1
+      end else if ((lhs == rhs) || (lhs_zero && rhs_zero)) begin
+        fcmp_flags = 4'b0110; // equal: Z=1, C=1
+      end else begin
+        if (lhs_neg != rhs_neg) begin
+          lhs_lt_rhs = lhs_neg;
+        end else if (!lhs_neg) begin
+          lhs_lt_rhs = (lhs[62:0] < rhs[62:0]);
+        end else begin
+          lhs_lt_rhs = (lhs[62:0] > rhs[62:0]);
+        end
+
+        fcmp_flags = lhs_lt_rhs ? 4'b1000 : 4'b0010; // less or greater
+      end
+    end
+  endfunction
 
   always_comb begin
     operandsI = '0;
@@ -208,6 +244,7 @@ module fpuExecute #(
     vectorialOpI = 1'b0;
     simdMaskI = 1'b1;
     supportedOp = 1'b1;
+    cmpFlags = fcmp_flags(reqSrc1, reqSrc2);
 
     case (reqOp)
       OP_NAN_CHECK: begin
@@ -251,7 +288,9 @@ module fpuExecute #(
   assign respValid = outValidO;
   assign respTag = tagO;
   assign respResult = resultO;
-  assign respFflags = {statusO.NV, statusO.DZ, statusO.OF, statusO.UF, statusO.NX};
+  assign respFflags = (reqOp == OP_FCMP) ? {1'b0, cmpFlags} :
+                      {statusO.NV, statusO.DZ, statusO.OF, statusO.UF, statusO.NX};
+  assign respFlagsValid = (reqOp == OP_FCMP) && outValidO;
   assign busy = busyO;
 
   fpnew_top #(

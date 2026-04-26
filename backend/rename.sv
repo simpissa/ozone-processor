@@ -39,6 +39,7 @@ module rename #(
     output logic                 rob_alloc_valid,
     output logic [4:0]           rob_dest_reg,
     output logic                 rob_dest_valid,
+    output logic                 rob_dest_is_fp,
     output logic [63:0]          rob_pc,
     output logic                 rob_is_branch,
     output logic                 rob_is_conditional,
@@ -67,6 +68,9 @@ module rename #(
     input  logic [ROB_TAG_W-1:0] rob_commit_tag,
     input  logic [4:0]           rob_commit_gpr_rd,
     input  logic [63:0]          rob_commit_gpr_value,
+    input  logic                 rob_commit_fp_valid,
+    input  logic [4:0]           rob_commit_fp_rd,
+    input  logic [63:0]          rob_commit_fp_value,
 
     // flags commit
     input  logic                 rob_commit_flags_valid,
@@ -106,6 +110,7 @@ module rename #(
 );
 
     logic [63:0]          gpr_arf [0:NUM_ARCH_REGS-1];
+    logic [63:0]          fp_arf [0:31];
     logic [3:0]           flags_reg;
     logic [63:0]          sprf [0:NUM_SPRS-1];
 
@@ -116,9 +121,12 @@ module rename #(
 
     // Allocation-time privilege violation detection.
     logic                 priv_violation;
+    spr_t                 sp_spr_id;
 
     logic                 gpr_srat_valid [0:NUM_ARCH_REGS-1];
     logic [ROB_TAG_W-1:0] gpr_srat_tag [0:NUM_ARCH_REGS-1];
+    logic                 fp_srat_valid [0:31];
+    logic [ROB_TAG_W-1:0] fp_srat_tag [0:31];
     logic                 flags_srat_valid;
     logic [ROB_TAG_W-1:0] flags_srat_tag;
     logic                 spr_srat_valid [0:NUM_SPRS-1];
@@ -141,7 +149,8 @@ module rename #(
     // the ROB and receives the allocated tag back on rob_tag.
     assign rob_alloc_valid   = rename_fire;
     assign rob_dest_reg      = uop.rd;
-    assign rob_dest_valid    = uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store;
+    assign rob_dest_valid    = uop.r_dest_valid && !uop.dest_is_sp && (uop.dest_is_fp || (uop.rd != 5'd31)) && !uop.is_store;
+    assign rob_dest_is_fp    = uop.dest_is_fp;
     assign rob_pc            = pc;
     assign rob_is_branch     = uop.is_branch;
     assign rob_is_conditional = uop.is_conditional;
@@ -151,12 +160,13 @@ module rename #(
     assign rob_first_uop     = uop.first_uop;
     assign rob_last_uop      = uop.last_uop;
     assign rob_is_eret       = uop.is_eret;
-    assign rob_is_msr        = uop.is_msr;
+    assign rob_is_msr        = uop.is_msr || uop.dest_is_sp;
     assign rob_is_mrs        = uop.is_mrs;
     assign rob_is_privileged = uop.is_privileged;
     assign rob_is_svc        = uop.is_svc;
     assign rob_sets_flags    = uop.sets_flags;
-    assign rob_spr_id        = uop.spr_id;
+    assign sp_spr_id         = el_reg ? SPR_SP_EL1 : SPR_SP_EL0;
+    assign rob_spr_id        = uop.dest_is_sp ? sp_spr_id : uop.spr_id;
     assign rob_exception_pc  = uop.is_svc ? (pc + 64'd4) : pc;
     assign rob_exception_el  = el_reg;
     assign rob_alloc_self_ready = (uop.fu_select == FU_NONE);
@@ -188,6 +198,12 @@ module rename #(
                 gpr_srat_tag[i]   <= '0;
             end
 
+            for (i = 0; i < 32; i = i + 1) begin
+                fp_arf[i]         <= 64'd0;
+                fp_srat_valid[i]  <= 1'b0;
+                fp_srat_tag[i]    <= '0;
+            end
+
             flags_srat_valid <= 1'b0;
             flags_srat_tag   <= '0;
 
@@ -216,6 +232,11 @@ module rename #(
                     gpr_srat_tag[i]   <= '0;
                 end
 
+                for (i = 0; i < 32; i = i + 1) begin
+                    fp_srat_valid[i] <= 1'b0;
+                    fp_srat_tag[i]   <= '0;
+                end
+
                 flags_srat_valid <= 1'b0;
                 flags_srat_tag   <= '0;
 
@@ -233,6 +254,15 @@ module rename #(
                 if (gpr_srat_valid[rob_commit_gpr_rd] && (gpr_srat_tag[rob_commit_gpr_rd] == rob_commit_tag)) begin
                     gpr_srat_valid[rob_commit_gpr_rd] <= 1'b0;
                     gpr_srat_tag[rob_commit_gpr_rd]   <= '0;
+                end
+            end
+
+            if (rob_commit_fp_valid) begin
+                fp_arf[rob_commit_fp_rd] <= rob_commit_fp_value;
+
+                if (fp_srat_valid[rob_commit_fp_rd] && (fp_srat_tag[rob_commit_fp_rd] == rob_commit_tag)) begin
+                    fp_srat_valid[rob_commit_fp_rd] <= 1'b0;
+                    fp_srat_tag[rob_commit_fp_rd]   <= '0;
                 end
             end
 
@@ -271,7 +301,10 @@ module rename #(
             if (rename_fire) begin
                 prev_uop_tag <= rob_tag;
 
-                if (uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store) begin
+                if (uop.r_dest_valid && uop.dest_is_fp && !uop.is_store) begin
+                    fp_srat_valid[uop.rd] <= 1'b1;
+                    fp_srat_tag[uop.rd]   <= rob_tag;
+                end else if (uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store) begin
                     gpr_srat_valid[uop.rd] <= 1'b1;
                     gpr_srat_tag[uop.rd]   <= rob_tag;
                 end
@@ -284,6 +317,11 @@ module rename #(
                 if (uop.is_msr && (uop.spr_id != SPR_INVALID)) begin
                     spr_srat_valid[uop.spr_id[SPR_IDX_W-1:0]] <= 1'b1;
                     spr_srat_tag[uop.spr_id[SPR_IDX_W-1:0]]   <= rob_tag;
+                end
+
+                if (uop.dest_is_sp) begin
+                    spr_srat_valid[sp_spr_id[SPR_IDX_W-1:0]] <= 1'b1;
+                    spr_srat_tag[sp_spr_id[SPR_IDX_W-1:0]]   <= rob_tag;
                 end
             end
         end
@@ -303,7 +341,8 @@ module rename #(
         out_payload.fu_select  = uop.fu_select;
         out_payload.fu_op      = uop.fu_op;
         out_payload.set_flags  = uop.sets_flags;
-        out_payload.dest_valid = (uop.r_dest_valid && (uop.rd != 5'd31) && !uop.is_store) ||
+        out_payload.dest_valid = (uop.r_dest_valid && !uop.dest_is_sp && (uop.dest_is_fp || (uop.rd != 5'd31)) && !uop.is_store) ||
+                                 uop.dest_is_sp ||
                                  !uop.last_uop ||
                                  uop.is_branch ||
                                  uop.is_msr ||
@@ -320,6 +359,24 @@ module rename #(
                 out_payload.src1_valid = 1'b1;
                 out_payload.src1_ready = 1'b1;
                 out_payload.src1_value = pc;
+            end else if (uop.src1_is_sp) begin
+                out_payload.src1_valid = 1'b1;
+
+                if (!spr_srat_valid[sp_spr_id[SPR_IDX_W-1:0]]) begin
+                    out_payload.src1_ready = 1'b1;
+                    out_payload.src1_value = sprf[sp_spr_id[SPR_IDX_W-1:0]];
+                end else begin
+                    rob_src1_lookup_valid = 1'b1;
+                    rob_src1_lookup_tag   = spr_srat_tag[sp_spr_id[SPR_IDX_W-1:0]];
+
+                    if (rob_src1_lookup_hit_ready) begin
+                        out_payload.src1_ready = 1'b1;
+                        out_payload.src1_value = rob_src1_lookup_value;
+                    end else begin
+                        out_payload.src1_tag   = spr_srat_tag[sp_spr_id[SPR_IDX_W-1:0]];
+                        out_payload.src1_ready = 1'b0;
+                    end
+                end
             end else if (uop.src1_is_sequential) begin
                 out_payload.src1_valid = 1'b1;
                 rob_src1_lookup_valid = 1'b1;
@@ -375,7 +432,23 @@ module rename #(
                 out_payload.src1_valid = 1'b1;
 
                 // assume X31 is XZR TODO: make sure this is right
-                if (uop.rs1 == 5'd31) begin
+                if (uop.src1_is_fp) begin
+                    if (!fp_srat_valid[uop.rs1]) begin
+                        out_payload.src1_ready = 1'b1;
+                        out_payload.src1_value = fp_arf[uop.rs1];
+                    end else begin
+                        rob_src1_lookup_valid = 1'b1;
+                        rob_src1_lookup_tag   = fp_srat_tag[uop.rs1];
+
+                        if (rob_src1_lookup_hit_ready) begin
+                            out_payload.src1_ready = 1'b1;
+                            out_payload.src1_value = rob_src1_lookup_value;
+                        end else begin
+                            out_payload.src1_tag   = fp_srat_tag[uop.rs1];
+                            out_payload.src1_ready = 1'b0;
+                        end
+                    end
+                end else if (uop.rs1 == 5'd31) begin
                     out_payload.src1_ready = 1'b1;
                     out_payload.src1_value = 64'd0;
                 end else if (!gpr_srat_valid[uop.rs1]) begin
@@ -409,10 +482,44 @@ module rename #(
                     out_payload.src2_tag   = prev_uop_tag;
                     out_payload.src2_ready = 1'b0;
                 end
+            end else if (uop.src2_is_sp) begin
+                out_payload.src2_valid = 1'b1;
+
+                if (!spr_srat_valid[sp_spr_id[SPR_IDX_W-1:0]]) begin
+                    out_payload.src2_ready = 1'b1;
+                    out_payload.src2_value = sprf[sp_spr_id[SPR_IDX_W-1:0]];
+                end else begin
+                    rob_src2_lookup_valid = 1'b1;
+                    rob_src2_lookup_tag   = spr_srat_tag[sp_spr_id[SPR_IDX_W-1:0]];
+
+                    if (rob_src2_lookup_hit_ready) begin
+                        out_payload.src2_ready = 1'b1;
+                        out_payload.src2_value = rob_src2_lookup_value;
+                    end else begin
+                        out_payload.src2_tag   = spr_srat_tag[sp_spr_id[SPR_IDX_W-1:0]];
+                        out_payload.src2_ready = 1'b0;
+                    end
+                end
             end else if (uop.rs2_valid) begin
                 out_payload.src2_valid = 1'b1;
 
-                if (uop.rs2 == 5'd31) begin
+                if (uop.src2_is_fp) begin
+                    if (!fp_srat_valid[uop.rs2]) begin
+                        out_payload.src2_ready = 1'b1;
+                        out_payload.src2_value = fp_arf[uop.rs2];
+                    end else begin
+                        rob_src2_lookup_valid = 1'b1;
+                        rob_src2_lookup_tag   = fp_srat_tag[uop.rs2];
+
+                        if (rob_src2_lookup_hit_ready) begin
+                            out_payload.src2_ready = 1'b1;
+                            out_payload.src2_value = rob_src2_lookup_value;
+                        end else begin
+                            out_payload.src2_tag   = fp_srat_tag[uop.rs2];
+                            out_payload.src2_ready = 1'b0;
+                        end
+                    end
+                end else if (uop.rs2 == 5'd31) begin
                     out_payload.src2_ready = 1'b1;
                     out_payload.src2_value = 64'd0;
                 end else if (!gpr_srat_valid[uop.rs2]) begin

@@ -35,6 +35,8 @@ module core_backend (
     input  logic        dmem_load_resp_valid,
     input  logic [ROB_TAG_W-1:0] dmem_load_resp_id,
     input  logic [63:0] dmem_load_resp_data,
+    input  logic        dmem_load_fault_valid,
+    input  logic [ROB_TAG_W-1:0] dmem_load_fault_id,
 
     output logic        dmem_store_valid,
     output logic [47:0] dmem_store_vaddr,
@@ -53,6 +55,7 @@ module core_backend (
     logic rob_alloc_valid;
     logic [4:0] rob_dest_reg;
     logic rob_dest_valid;
+    logic rob_dest_is_fp;
     logic [63:0] rob_pc;
     logic rob_is_branch;
     logic rob_is_conditional;
@@ -80,6 +83,9 @@ module core_backend (
     logic [4:0] commit_gpr_rd;
     logic [63:0] commit_gpr_value;
     logic [ROB_TAG_W-1:0] commit_tag;
+    logic commit_fp_valid;
+    logic [4:0] commit_fp_rd;
+    logic [63:0] commit_fp_value;
     logic commit_flags_valid;
     logic [3:0] commit_flags_value;
     logic commit_spr_valid;
@@ -169,6 +175,7 @@ module core_backend (
     logic [ROB_TAG_W-1:0] fpu_wb_tag;
     logic [63:0] fpu_wb_value;
     logic [4:0] fpu_wb_fflags;
+    logic fpu_wb_flags_valid;
     logic fpu_busy;
 
     logic lq_ready;
@@ -188,6 +195,7 @@ module core_backend (
     logic load_complete_valid;
     logic [ROB_TAG_W-1:0] load_complete_id;
     logic [63:0] load_complete_data;
+    logic load_complete_exception;
     logic store_complete_pending;
     logic [ROB_TAG_W-1:0] store_complete_tag;
     logic DBG;
@@ -221,6 +229,7 @@ module core_backend (
         .rob_alloc_valid(rob_alloc_valid),
         .rob_dest_reg(rob_dest_reg),
         .rob_dest_valid(rob_dest_valid),
+        .rob_dest_is_fp(rob_dest_is_fp),
         .rob_pc(rob_pc),
         .rob_is_branch(rob_is_branch),
         .rob_is_conditional(rob_is_conditional),
@@ -247,6 +256,9 @@ module core_backend (
         .rob_commit_tag(commit_tag),
         .rob_commit_gpr_rd(commit_gpr_rd),
         .rob_commit_gpr_value(commit_gpr_value),
+        .rob_commit_fp_valid(commit_fp_valid),
+        .rob_commit_fp_rd(commit_fp_rd),
+        .rob_commit_fp_value(commit_fp_value),
         .rob_commit_flags_valid(commit_flags_valid),
         .rob_commit_flags_value(commit_flags_value),
         .rob_commit_spr_valid(commit_spr_valid),
@@ -282,6 +294,7 @@ module core_backend (
         .pc_in(rob_pc),
         .dest_reg(rob_dest_reg),
         .dest_valid(rob_dest_valid),
+        .dest_is_fp(rob_dest_is_fp),
         .is_branch_in(rob_is_branch),
         .is_conditional_in(rob_is_conditional),
         .is_store_in(rob_is_store),
@@ -316,6 +329,9 @@ module core_backend (
         .commit_gpr_rd(commit_gpr_rd),
         .commit_gpr_value(commit_gpr_value),
         .commit_tag(commit_tag),
+        .commit_fp_valid(commit_fp_valid),
+        .commit_fp_rd(commit_fp_rd),
+        .commit_fp_value(commit_fp_value),
         .commit_spr_valid(commit_spr_valid),
         .commit_spr_id(commit_spr_id),
         .commit_spr_value(commit_spr_value),
@@ -525,6 +541,7 @@ module core_backend (
         .wbTag(fpu_wb_tag),
         .wbValue(fpu_wb_value),
         .wbFflags(fpu_wb_fflags),
+        .wbFlagsValid(fpu_wb_flags_valid),
         .fpuBusy(fpu_busy)
     );
 
@@ -533,7 +550,7 @@ module core_backend (
         tag: fpu_wb_tag,
         value: fpu_wb_value,
         flags: fpu_wb_fflags[3:0],
-        flags_valid: 1'b0,
+        flags_valid: fpu_wb_flags_valid,
         exception: 1'b0,
         exception_code: EXC_CODE_NONE
     };
@@ -563,9 +580,12 @@ module core_backend (
         .l1_resp_valid(dmem_load_resp_valid),
         .l1_resp_id(dmem_load_resp_id),
         .l1_resp_data(dmem_load_resp_data),
+        .l1_fault_valid(dmem_load_fault_valid),
+        .l1_fault_id(dmem_load_fault_id),
         .load_complete_valid(load_complete_valid),
         .load_complete_id(load_complete_id),
-        .load_complete_data(load_complete_data)
+        .load_complete_data(load_complete_data),
+        .load_complete_exception(load_complete_exception)
     );
 
     store_queue i_store_queue (
@@ -617,6 +637,8 @@ module core_backend (
             fu_results[FU_MEM].valid = 1'b1;
             fu_results[FU_MEM].tag = load_complete_id;
             fu_results[FU_MEM].value = load_complete_data;
+            fu_results[FU_MEM].exception = load_complete_exception;
+            fu_results[FU_MEM].exception_code = load_complete_exception ? EXC_CODE_DATA : EXC_CODE_NONE;
         end else if (store_complete_pending) begin
             fu_results[FU_MEM].valid = 1'b1;
             fu_results[FU_MEM].tag = store_complete_tag;

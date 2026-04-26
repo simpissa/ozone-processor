@@ -17,6 +17,7 @@ module rob #(
     input  logic [63:0]          pc_in,
     input  logic [4:0]           dest_reg,
     input  logic                 dest_valid,
+    input  logic                 dest_is_fp,
     input  logic                 is_branch_in,
     input  logic                 is_conditional_in,
     input  logic                 is_store_in,
@@ -60,6 +61,9 @@ module rob #(
     output logic [4:0]           commit_gpr_rd,
     output logic [63:0]          commit_gpr_value,
     output logic [ROB_TAG_W-1:0] commit_tag,
+    output logic                 commit_fp_valid,
+    output logic [4:0]           commit_fp_rd,
+    output logic [63:0]          commit_fp_value,
 
     // writeback to special registers
     output logic                 commit_spr_valid,
@@ -117,6 +121,7 @@ module rob #(
         logic [4:0]  arch_rd;
         logic        el;
         logic        rd_valid;
+        logic        rd_is_fp;
         logic        is_branch;
         logic        is_conditional;
         logic        is_store;
@@ -225,6 +230,9 @@ module rob #(
         commit_gpr_rd          = '0;
         commit_gpr_value       = 64'd0;
         commit_tag             = '0;
+        commit_fp_valid        = 1'b0;
+        commit_fp_rd           = '0;
+        commit_fp_value        = 64'd0;
         commit_spr_valid       = 1'b0;
         commit_spr_id          = SPR_INVALID;
         commit_spr_value       = 64'd0;
@@ -299,13 +307,9 @@ module rob #(
                 */
                 commit_is_exception   = 1'b1;
                 commit_exception_code = head_exception_code;
-                commit_exception_pc   = head_branch_to_zero
-                                        ? ((head_entry.pc == 64'h400000) ? head_entry.pc : (head_entry.pc - 64'd4))
-                                        : head_entry.exception_pc;
+                commit_exception_pc   = head_branch_to_zero ? head_entry.pc : head_entry.exception_pc;
                 commit_exc_elr_valid  = 1'b1;
-                commit_exc_elr_value  = head_branch_to_zero
-                                        ? ((head_entry.pc == 64'h400000) ? head_entry.pc : (head_entry.pc - 64'd4))
-                                        : head_entry.exception_pc;
+                commit_exc_elr_value  = head_branch_to_zero ? head_entry.pc : head_entry.exception_pc;
                 commit_exc_spsr_valid = 1'b1;
                 commit_exc_spsr_value = {63'd0, head_entry.el};
                 commit_exc_esr_valid  = 1'b0;
@@ -313,9 +317,12 @@ module rob #(
                 redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
                 flush                 = 1'b1;
             end else begin
-                commit_gpr_valid = head_entry.rd_valid && !head_entry.is_store;
+                commit_gpr_valid = head_entry.rd_valid && !head_entry.rd_is_fp && !head_entry.is_store;
                 commit_gpr_rd    = head_entry.arch_rd;
                 commit_gpr_value = head_entry.result;
+                commit_fp_valid  = head_entry.rd_valid && head_entry.rd_is_fp && !head_entry.is_store;
+                commit_fp_rd     = head_entry.arch_rd;
+                commit_fp_value  = head_entry.result;
 
                 commit_spr_valid = head_entry.is_msr;
                 commit_spr_id    = head_entry.spr_id;
@@ -331,7 +338,6 @@ module rob #(
                                    (head_entry.spr_id == SPR_ACTLR_EL1) &&
                                    (head_entry.result == TERMINATE_VALUE) &&
                                    head_entry.last_uop;
-
                 if (head_branch_mispredict) begin
                     redirect_pc = head_entry.result;
                     flush              = 1'b1;
@@ -374,6 +380,7 @@ module rob #(
                 entries_n[tail_idx].pc               = pc_in;
                 entries_n[tail_idx].exception_pc     = exception_pc_in;
                 entries_n[tail_idx].arch_rd          = dest_reg;
+                entries_n[tail_idx].rd_is_fp         = dest_is_fp;
                 entries_n[tail_idx].el               = exception_el_in;
                 entries_n[tail_idx].rd_valid         = dest_valid;
                 entries_n[tail_idx].is_branch        = is_branch_in;

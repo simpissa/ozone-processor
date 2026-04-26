@@ -31,6 +31,8 @@ module Top (
     input  logic                 dmem_load_resp_valid,
     input  logic [ROB_TAG_W-1:0] dmem_load_resp_id,
     input  logic [63:0]          dmem_load_resp_data,
+    input  logic                 dmem_load_fault_valid,
+    input  logic [ROB_TAG_W-1:0] dmem_load_fault_id,
 
     // dmem store (vaddr, fire-and-forget)
     output logic         dmem_store_valid,
@@ -43,6 +45,7 @@ module Top (
 
     // architectural state, sampled from inside ozone via hierarchical refs
     output logic [63:0]  x_regs [0:30],
+    output logic [63:0]  v_regs [0:31],
     output logic [63:0]  sprf   [0:7],
     output logic [3:0]   pstate_flags,
     output logic         el,
@@ -87,6 +90,8 @@ module Top (
         .dmem_load_resp_valid(dmem_load_resp_valid),
         .dmem_load_resp_id(dmem_load_resp_id),
         .dmem_load_resp_data(dmem_load_resp_data),
+        .dmem_load_fault_valid(dmem_load_fault_valid),
+        .dmem_load_fault_id(dmem_load_fault_id),
 
         .dmem_store_valid(dmem_store_valid),
         .dmem_store_vaddr(dmem_store_vaddr),
@@ -99,6 +104,9 @@ module Top (
     generate
         for (genvar gi = 0; gi < 31; gi++) begin : g_xregs
             assign x_regs[gi] = proc.be.i_rename.gpr_arf[gi];
+        end
+        for (genvar gi = 0; gi < 32; gi++) begin : g_vregs
+            assign v_regs[gi] = proc.be.i_rename.fp_arf[gi];
         end
         for (genvar gi = 0; gi < 8; gi++) begin : g_sprs
             assign sprf[gi] = proc.be.i_rename.sprf[gi];

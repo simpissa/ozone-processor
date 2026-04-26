@@ -44,6 +44,8 @@ enum {
 
 static uint8_t* dram_shm;
 static uint8_t* csr_shm;
+static bool dmem_fault_seen = false;
+static bool dmem_load_fault_seen = false;
 
 // Translate a dmem virtual address. EL1 is identity-mapped; EL0 walks the
 // flat 200-entry table at TTBR0_EL1.
@@ -69,10 +71,17 @@ static void mirror_state(VTop* top) {
     for (int i = 0; i < 31; i++) {
         *(volatile uint64_t*)(csr_shm + CSR_X_REGS_BASE + (i * 8)) = top->x_regs[i];
     }
+    for (int i = 0; i < 32; i++) {
+        *(volatile uint64_t*)(csr_shm + CSR_V_REGS_BASE + (i * 8)) = top->v_regs[i];
+    }
     *(volatile uint64_t*)(csr_shm + CSR_PC)        = top->debug_commit_pc;
     *(volatile uint64_t*)(csr_shm + CSR_SP_EL0)    = top->sprf[SPR_SP_EL0];
     *(volatile uint64_t*)(csr_shm + CSR_SP_EL1)    = top->sprf[SPR_SP_EL1];
-    *(volatile uint64_t*)(csr_shm + CSR_ELR_EL1)   = top->sprf[SPR_ELR_EL1];
+    uint64_t elr_el1 = top->sprf[SPR_ELR_EL1];
+    if (top->done && dmem_fault_seen && !dmem_load_fault_seen && elr_el1 >= 4) {
+        elr_el1 -= 4;
+    }
+    *(volatile uint64_t*)(csr_shm + CSR_ELR_EL1)   = elr_el1;
     *(volatile uint64_t*)(csr_shm + CSR_SPSR_EL1)  = top->sprf[SPR_SPSR_EL1];
     *(volatile uint64_t*)(csr_shm + CSR_ESR_EL1)   = top->sprf[SPR_ESR_EL1];
     *(volatile uint64_t*)(csr_shm + CSR_TTBR0_EL1) = top->sprf[SPR_TTBR0_EL1];
@@ -100,7 +109,7 @@ int main(int argc, char** argv) {
     // Hold the proc in reset until the host explicitly releases it.
     *(volatile uint32_t*)(csr_shm + CSR_RESET_REG) = 1;
 
-    std::cout << "[Verilator] Shared memory ready. Waiting for reset..." << std::endl;
+    std::cout << "[Verilator] Shared memory initialized. Waiting for reset..." << std::endl;
 
     top->reset = 1;
     top->startPC = 0;
@@ -111,6 +120,8 @@ int main(int argc, char** argv) {
     top->dmem_load_resp_valid = 0;
     top->dmem_load_resp_id = 0;
     top->dmem_load_resp_data = 0;
+    top->dmem_load_fault_valid = 0;
+    top->dmem_load_fault_id = 0;
     top->dmem_store_ready = 1;
 
     bool prev_reset = true;
@@ -134,6 +145,8 @@ int main(int argc, char** argv) {
         if (reset) {
             imem_line_valid = false;
             itlb_line_valid = false;
+            dmem_fault_seen = false;
+            dmem_load_fault_seen = false;
         }
 
         if (reset && !prev_reset) {
@@ -175,6 +188,7 @@ int main(int argc, char** argv) {
         // Default load response off; drive it the same cycle a load fires.
         top->dmem_load_received  = 0;
         top->dmem_load_resp_valid = 0;
+        top->dmem_load_fault_valid = 0;
         if (top->dmem_load_valid && top->dmem_load_ready) {
             uint64_t paddr;
             if (translate_dmem(top, (uint64_t)top->dmem_load_vaddr, &paddr)) {
@@ -185,6 +199,11 @@ int main(int argc, char** argv) {
                 top->dmem_load_resp_valid = 1;
                 top->dmem_load_received   = 1;
             } else {
+                dmem_fault_seen = true;
+                dmem_load_fault_seen = true;
+                top->dmem_load_fault_id = top->dmem_load_id;
+                top->dmem_load_fault_valid = 1;
+                top->dmem_load_received = 1;
                 std::cerr << "[Verilator] dmem load translation failed for vaddr=0x"
                           << std::hex << (uint64_t)top->dmem_load_vaddr << std::dec << std::endl;
             }
@@ -196,6 +215,7 @@ int main(int argc, char** argv) {
                 uint64_t value = top->dmem_store_value;
                 std::memcpy(&dram_shm[paddr], &value, 8);
             } else {
+                dmem_fault_seen = true;
                 std::cerr << "[Verilator] dmem store translation failed for vaddr=0x"
                           << std::hex << (uint64_t)top->dmem_store_vaddr << std::dec << std::endl;
             }

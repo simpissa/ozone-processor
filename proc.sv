@@ -28,6 +28,8 @@ module ozone(
     input  logic         dmem_load_resp_valid,
     input  logic [ROB_TAG_W-1:0] dmem_load_resp_id,
     input  logic [63:0]  dmem_load_resp_data,
+    input  logic         dmem_load_fault_valid,
+    input  logic [ROB_TAG_W-1:0] dmem_load_fault_id,
 
     output logic         dmem_store_valid,
     output logic [47:0]  dmem_store_vaddr,
@@ -119,6 +121,8 @@ module ozone(
         .dmem_load_resp_valid(dmem_load_resp_valid),
         .dmem_load_resp_id(dmem_load_resp_id),
         .dmem_load_resp_data(dmem_load_resp_data),
+        .dmem_load_fault_valid(dmem_load_fault_valid),
+        .dmem_load_fault_id(dmem_load_fault_id),
         .dmem_store_valid(dmem_store_valid),
         .dmem_store_vaddr(dmem_store_vaddr),
         .dmem_store_value(dmem_store_value),

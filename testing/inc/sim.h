@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include "ozone_config.h"
 
 #define NUM_X_REGS 31
@@ -38,6 +39,7 @@ typedef struct {
 
 void sim_init(cpu_state_t* cpu, ozone_config_t* config);
 void sim_run(cpu_state_t* cpu, const char* binary_path);
+void sim_fprint_state(FILE* out, cpu_state_t* cpu);
 void sim_print_state(cpu_state_t* cpu);
 void sim_destroy(cpu_state_t* cpu);
 

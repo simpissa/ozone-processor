@@ -258,6 +258,12 @@ module decoder (
         uop.imm            = 64'd0;
         uop.imm_valid      = 1'b0;
         uop.src1_is_pc     = 1'b0;
+        uop.src1_is_sp     = 1'b0;
+        uop.src2_is_sp     = 1'b0;
+        uop.dest_is_sp     = 1'b0;
+        uop.src1_is_fp     = 1'b0;
+        uop.src2_is_fp     = 1'b0;
+        uop.dest_is_fp     = 1'b0;
         uop.reads_flags    = 1'b0;
         uop.sets_flags     = 1'b0;
         uop.first_uop      = (uop_counter == 0);
@@ -293,6 +299,7 @@ module decoder (
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
+                        uop.src1_is_sp=(Rn_field == 5'd31);
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
@@ -315,6 +322,7 @@ module decoder (
                         uop.fu_op=OP_COMPUTE_ADDR;
                         uop.rs1=Rn_field;
                         uop.rs1_valid=1'b1;
+                        uop.src1_is_sp=(Rn_field == 5'd31);
                         uop.imm={{55{instr[20]}},instr[20:12]};
                         uop.imm_valid=1'b1;
                         uop.last_uop=1'b0;
@@ -416,8 +424,10 @@ module decoder (
                 uop.fu_op=OP_ADD;
                 uop.rd=instr[4:0];
                 uop.r_dest_valid=1'b1;
+                uop.dest_is_sp=(instr[4:0] == 5'd31);
                 uop.rs1=Rn_field;   // In context of ADD (imm), X31 is SP, not XZR
                 uop.rs1_valid=1'b1;
+                uop.src1_is_sp=(Rn_field == 5'd31);
                 uop.imm=addsub_imm64(instr[21:10], instr[22]);
                 uop.imm_valid=1'b1;
             end
@@ -486,8 +496,10 @@ module decoder (
                 uop.fu_op=OP_SUB;
                 uop.rd=instr[4:0];
                 uop.r_dest_valid=1'b1;
+                uop.dest_is_sp=(instr[4:0] == 5'd31);
                 uop.rs1=Rn_field;   // In context of SUB (imm), X31 is SP, not XZR
                 uop.rs1_valid=1'b1;
+                uop.src1_is_sp=(Rn_field == 5'd31);
                 uop.imm=addsub_imm64(instr[21:10], instr[22]);
                 uop.imm_valid=1'b1;
             end
@@ -972,6 +984,7 @@ module decoder (
                   uop.fu_op=OP_COMPUTE_ADDR;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_sp=(Rn_field == 5'd31);
                   uop.imm={{55{instr[20]}},instr[20:12]};
                   uop.imm_valid=1'b1;
                   uop.last_uop=1'b0;
@@ -981,6 +994,7 @@ module decoder (
                   uop.fu_op=OP_LOAD;
                   uop.rd=instr[4:0];
                   uop.r_dest_valid=1'b1;
+                  uop.dest_is_fp=1'b1;
                   uop.src1_is_sequential=1'b1;
                 end
               endcase
@@ -994,6 +1008,7 @@ module decoder (
                   uop.fu_op=OP_COMPUTE_ADDR;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_sp=(Rn_field == 5'd31);
                   uop.imm={{55{instr[20]}},instr[20:12]};
                   uop.imm_valid=1'b1;
                   uop.last_uop=1'b0;
@@ -1004,6 +1019,7 @@ module decoder (
                   uop.is_store=1'b1;
                   uop.rs2=instr[4:0];
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.src1_is_sequential=1'b1;
                 end
               endcase
@@ -1014,10 +1030,12 @@ module decoder (
               uop.fu_op=OP_OR;
               uop.rd=instr[4:0];
               uop.r_dest_valid=1'b1;
+              uop.dest_is_fp=1'b1;
               uop.rs1=5'b11111;
               uop.rs1_valid=1'b1;
               uop.rs2=Rn_field;
               uop.rs2_valid=1'b1;
+              uop.src2_is_fp=1'b1;
             end
 
             I_FNEG: begin
@@ -1025,8 +1043,10 @@ module decoder (
               uop.fu_op=OP_XOR;
               uop.rd=instr[4:0];
               uop.r_dest_valid=1'b1;
+              uop.dest_is_fp=1'b1;
               uop.rs1=Rn_field;
               uop.rs1_valid=1'b1;
+              uop.src1_is_fp=1'b1;
               uop.imm=64'h8000_0000_0000_0000;
               uop.imm_valid=1'b1;
             end
@@ -1038,8 +1058,10 @@ module decoder (
                   uop.fu_op=OP_NAN_CHECK;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.last_uop=1'b0;
                 end
                 1: begin
@@ -1047,10 +1069,13 @@ module decoder (
                   uop.fu_op=OP_FADD;
                   uop.rd=instr[4:0];
                   uop.r_dest_valid=1'b1;
+                  uop.dest_is_fp=1'b1;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                 end
               endcase
             end
@@ -1062,8 +1087,10 @@ module decoder (
                   uop.fu_op=OP_NAN_CHECK;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.last_uop=1'b0;
                 end
                 1: begin
@@ -1071,10 +1098,13 @@ module decoder (
                   uop.fu_op=OP_FMUL;
                   uop.rd=instr[4:0];
                   uop.r_dest_valid=1'b1;
+                  uop.dest_is_fp=1'b1;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                 end
               endcase
             end
@@ -1087,8 +1117,10 @@ module decoder (
                   uop.fu_op=OP_NAN_CHECK;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.last_uop=1'b0;
                 end
                 1: begin
@@ -1096,6 +1128,7 @@ module decoder (
                     uop.fu_op=OP_XOR;
                     uop.rs1=RmField;
                     uop.rs1_valid=1'b1;
+                    uop.src1_is_fp=1'b1;
                     uop.imm=64'h8000_0000_0000_0000;
                     uop.imm_valid=1'b1;
                     uop.last_uop=1'b0;
@@ -1105,9 +1138,11 @@ module decoder (
                     uop.fu_op=OP_FADD;
                     uop.rd=instr[4:0];
                     uop.r_dest_valid=1'b1;
+                    uop.dest_is_fp=1'b1;
                     uop.src1_is_sequential=1'b1;
                     uop.rs2=Rn_field;
                     uop.rs2_valid=1'b1;
+                    uop.src2_is_fp=1'b1;
                 end
               endcase
             end
@@ -1119,8 +1154,10 @@ module decoder (
                   uop.fu_op=OP_NAN_CHECK;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.last_uop=1'b0;
                 end
                 1: begin
@@ -1128,8 +1165,10 @@ module decoder (
                   uop.fu_op=OP_FCMP;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=RmField;
                   uop.rs2_valid=1'b1;
+                  uop.src2_is_fp=1'b1;
                   uop.sets_flags=1'b1;
                 end
               endcase
@@ -1142,6 +1181,7 @@ module decoder (
                   uop.fu_op=OP_NAN_CHECK;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=5'd31;
                   uop.rs2_valid=1'b1;
                   uop.last_uop=1'b0;
@@ -1151,6 +1191,7 @@ module decoder (
                   uop.fu_op=OP_FCMP;
                   uop.rs1=Rn_field;
                   uop.rs1_valid=1'b1;
+                  uop.src1_is_fp=1'b1;
                   uop.rs2=5'd31;
                   uop.rs2_valid=1'b1;
                   uop.sets_flags=1'b1;
