@@ -4,3 +4,5 @@ In the testing/ directory, first run `make` then `verilator/obj_dir/VTop` to sta
 
 A make target has been added, `make test`, that will iterate through all of the test cases.
 Just make sure that you are running `verilator/obj_dir/VTop` in another terminal.
+
+Quartus project directory is in memory/mem_GHRD.
