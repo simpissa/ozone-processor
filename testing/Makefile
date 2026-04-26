@@ -9,7 +9,9 @@ TEST_SRC_DIR=testcases/src
 TEST_BIN_DIR=testcases/bin
 
 BASE_TEST_SRCS=$(wildcard $(TEST_SRC_DIR)/[012]_*.s) $(TEST_SRC_DIR)/3_page_fault.s
-STANDALONE_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/%.elf, $(BASE_TEST_SRCS))
+STUDENT_TEST_SRCS=$(wildcard $(TEST_SRC_DIR)/stud_*.s)
+STANDALONE_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/%.elf, $(BASE_TEST_SRCS)) \
+                $(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/%.elf, $(STUDENT_TEST_SRCS))
 EL1_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/el1_%.elf, $(BASE_TEST_SRCS))
 
 # STUDENTS: change the below based on what your ARM compiler's prefixes are. It
