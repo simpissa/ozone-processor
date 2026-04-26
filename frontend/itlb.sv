@@ -46,13 +46,16 @@ tlb_entry_t tlb_table [ENTRIES];
 logic [3:0] evict_idx;
 
 logic request_pending;
-logic lookup_fire;
+logic lookup_valid;
+logic fill_hit;
+logic table_hit;
 
 assign vpn = fetch_vaddr_i[VA_BITS-1:12];
 assign pte_addr = ttbr0 + ({{(64-VPN_BITS){1'b0}}, vpn_lookup} << 3);
-assign mem_addr_o = {pte_addr[29:6], fetch_vaddr_i[5:0]};
+assign mem_addr_o = {pte_addr[29:6], 6'b0};
 assign pte_idx = vpn_lookup[2:0];
 assign pte = mem_rdata_i[pte_idx*64 +: 64];
+assign fill_hit = lookup_valid && request_pending && mem_valid_i && pte[0];
 
 logic DBG;
 
@@ -64,32 +67,40 @@ initial begin
         tlb_table[i].valid = 0;
     end
     request_pending = 0;
+    lookup_valid = 0;
     fetch_ready_o = 0;
-    lookup_fire = 0;
+    mem_valid_o = 0;
 end
 
-always @(lookup_fire) begin
+always_comb begin
     
     fetch_miss_o = 1;
     fetch_hit_o = 0;
+    table_hit = 0;
     evict_idx = '0;
     fetch_paddr_o = '0;
 
     if (DBG)
-        $display("iTLB State: Checking table for vpn %x, fire on %d", vpn_lookup, lookup_fire);
+        $display("iTLB State: Checking table for vpn %x, valid %d", vpn_lookup, lookup_valid);
 
     for (int i = 0; i < ENTRIES; ++i) begin
         if (tlb_table[i].valid && tlb_table[i].vpn == vpn_lookup) begin
             if (DBG)
                 $display("iTLB State: Hit in table at idx %d", i);
-            fetch_hit_o = 1;
+            table_hit = 1;
             fetch_paddr_o = {tlb_table[i].ppn, vaddr_offset};
-            fetch_miss_o = 0;
             break;
         end else if (!tlb_table[i].valid) begin
             evict_idx = 4'(i);
         end
     end
+
+    if (fill_hit) begin
+        fetch_paddr_o = {pte[29:12], vaddr_offset};
+    end
+
+    fetch_hit_o = lookup_valid && (table_hit || fill_hit);
+    fetch_miss_o = lookup_valid && !(table_hit || fill_hit);
 
     if (DBG)
         $display("iTLB State: Done checking table, hit %d miss %d", fetch_hit_o, fetch_miss_o);
@@ -104,10 +115,10 @@ always_ff @(posedge clk) begin
         vpn_lookup <= vpn;
         vaddr_offset <= fetch_vaddr_i[11:0];
         fetch_ready_o <= 0;
-        lookup_fire <= ~lookup_fire;
+        lookup_valid <= 1;
     end
 
-    if (fetch_miss_o && !request_pending) begin
+    if (fetch_miss_o && !request_pending && !mem_valid_o) begin
         if (DBG)
             $display("iTLB State: Sending request to memory unit");
         mem_valid_o <= 1;
@@ -133,11 +144,13 @@ always_ff @(posedge clk) begin
         end
         request_pending <= 0;
         fetch_ready_o <= 1;
-        lookup_fire <= ~lookup_fire;
+        lookup_valid <= 0;
     end
 
-    if (fetch_hit_o)
+    if (table_hit && lookup_valid) begin
         fetch_ready_o <= 1;
+        lookup_valid <= 0;
+    end
 
     // assume they hear our request
     if (mem_valid_o && mem_ready_i) begin
@@ -154,12 +167,12 @@ always_ff @(posedge clk) begin
             tlb_table[i].ppn <= '0;
             tlb_table[i].vpn <= '0;
         end
-        lookup_fire <= ~lookup_fire;
+        lookup_valid <= 0;
+        request_pending <= 0;
+        mem_valid_o <= 0;
         fetch_ready_o <= 1;
     end 
     
 end
 
 endmodule
-
-

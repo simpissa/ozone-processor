@@ -19,9 +19,12 @@ EL1_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/el1_%.elf, $(BASE_TEST_
 CROSS_COMPILE=aarch64-linux-gnu-
 GCC=$(CROSS_COMPILE)gcc
 
-.PHONY: all clean tests verify
+.PHONY: all clean tests verify verilator
 
-all: $(EXEC) tests
+all: $(EXEC) tests verilator
+
+verilator:
+	$(MAKE) -C verilator
 
 $(EXEC): src/log.c src/ozone_config.c src/sim.c src/run.c src/main.c $(CAPSTONE_LIB)
 	gcc $(DEBUG_FLAGS) -I inc -I $(CAPSTONE_INC) -o $@ $^
@@ -61,7 +64,15 @@ linker.ld: $(EXEC) ozone-config.json
 clean:
 	$(RM) $(EXEC) linker.ld ozone.zip
 	$(RM) -rf $(TEST_BIN_DIR)
+	$(MAKE) -C verilator clean
 
 ozone.zip: clean
 	make -C verilator clean
 	zip -r ozone.zip capstone/ inc/ src/ testcases/ verilator/ Makefile ozone-config.json README.md verify.py
+
+test: tests
+	@echo "Make sure you have the top module running in a different terminal!"
+	@for elf in $(TEST_BIN_DIR)/*.elf; do \
+        echo "Running $$elf"; \
+        ./ozone ozone-config.json check_verilator $$elf || exit 1; \
+    done

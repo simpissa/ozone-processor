@@ -4,249 +4,271 @@ import types::*;
 
 module alu #(
     parameter int unsigned DELAY = 1,
-	parameter int unsigned tagW = 6,
     parameter int unsigned TAG_LEN = 6
 ) (
-	input logic clk,
-	input logic rstN,
-	input logic flush,
-
-	// input
-	input logic valid_in,
-	output logic ready_out,
-    input logic [63:0] arg1,
-    input logic [63:0] arg2,
-    input logic [TAG_LEN-1:0] tag,
-    input logic [TAG_LEN-1:0] flag_tag,
-    input logic should_output,
-    input logic set_flags,
-    input fu_op_t op,
-
-    output logic valid_out,
-    input logic ready_in,
-    output fu_result_t result
+    input  logic               clk,
+    input  logic               rstN,
+    input  logic               flush,
+    input  logic               valid_in,
+    output logic               ready_out,
+    input  logic [63:0]        arg1,
+    input  logic [63:0]        arg2,
+    input  logic [TAG_LEN-1:0] tag,
+    input  logic               should_output,
+    input  logic               set_flags,
+    input  logic               src2_valid,
+    input  logic [3:0]         cond,
+    input  logic [63:0]        imm,
+    input  fu_op_t             op,
+    input  fu_result_t         bus_in,
+    output fu_result_t         bus_out
 );
 
+    logic [$clog2(DELAY+1):0] counter;
+    logic pending;
+    logic [TAG_LEN-1:0] result_tag;
+    logic [63:0] result_value;
+    logic [3:0] result_flags;
+    logic result_flags_valid;
+    logic send_to_bus;
 
-initial begin 
-    valid_out = 1'b0;
-    ready_out = 1'b1;
-    result = 0;
-    count = 0;
-end
+    logic valid_out;
+    logic accepted_by_bus;
 
-// Keep the state over, cahnge the names or store in a struct
-logic working_valid;
-logic [64:0] working_arg1;
-logic [64:0] working_arg2;
-logic [TAG_LEN-1:0] working_tag;
-logic [TAG_LEN-1:0] working_flag_tag;
-logic working_should_output;
-logic working_set_flags;
-fu_op_t working_op;
-// Assign result in comb, only validate in ff
+    assign valid_out = pending && (counter >= DELAY[$bits(counter)-1:0]);
+    assign accepted_by_bus = !send_to_bus || (bus_in.valid && (bus_in.tag == result_tag));
+    assign ready_out = !pending || (valid_out && accepted_by_bus);
 
-always_comb begin
-    result.valid = working_valid && valid_out;
-    result.tag = working_tag;
-    result.value = working_arg1[63:0] + working_arg2[63:0];
-    result.flags[0] = result.value[63];
-    result.flags[1] = result.value == 0;
-    result.flags[2] = result.value[64];
-    result.flags[3] = working_arg1[63] == working_arg2[63] && result.value[63] != working_arg1[63];
-    result.flags_valid = working_set_flags;
-    //result.exception = ; TODO Exception logic
-    // result.exception_code = ;
-end
+    assign bus_out.valid = valid_out && send_to_bus;
+    assign bus_out.tag = result_tag;
+    assign bus_out.value = result_value;
+    assign bus_out.flags = result_flags;
+    assign bus_out.flags_valid = result_flags_valid;
+    assign bus_out.exception = 1'b0;
+    assign bus_out.exception_code = EXC_CODE_NONE;
 
-assign valid_out = count >= DELAY[$clog2(DELAY):0];
-
-logic[$clog2(DELAY):0] count;
-always_ff @(posedge clk) begin
-    if(~rstN || flush) begin
-        ready_out <= 1'b1;
-    end else begin
-        // If valid conditions reached set valid_out to true
-        // Take in a value to compute, block the alu
-        $display("%b %b, %d", valid_in, ready_out, count);
-        if(valid_in && ready_out) begin
-            
-            ready_out <= 1'b0;
-            working_valid <= 1'b1;
-            working_arg1 <= {1'b1, arg1};
-            working_arg2 <= {1'b1, arg2};
-            working_tag <= tag;
-            working_flag_tag <= flag_tag;
-            working_should_output <= should_output;
-            working_set_flags <= set_flags;
-            working_op <= op;
-            count <= 1'b1;
-            $display("NEW VAL");
-        end else if(~ready_out && ~valid_out) begin
-            count <= count + 1;
+    function automatic logic cond_true(input logic [3:0] cnd, input logic [3:0] flags);
+        logic n;
+        logic z;
+        logic c;
+        logic v;
+        begin
+            n = flags[3];
+            z = flags[2];
+            c = flags[1];
+            v = flags[0];
+            unique case (cnd)
+                4'h0: cond_true = z;
+                4'h1: cond_true = !z;
+                4'h2: cond_true = c;
+                4'h3: cond_true = !c;
+                4'h4: cond_true = n;
+                4'h5: cond_true = !n;
+                4'h6: cond_true = v;
+                4'h7: cond_true = !v;
+                4'h8: cond_true = c && !z;
+                4'h9: cond_true = !c || z;
+                4'ha: cond_true = (n == v);
+                4'hb: cond_true = (n != v);
+                4'hc: cond_true = !z && (n == v);
+                4'hd: cond_true = z || (n != v);
+                4'he: cond_true = 1'b1;
+                default: cond_true = 1'b0;
+            endcase
         end
+    endfunction
 
-        // Output values to rob and invalidate the results
-        if(valid_out && ready_in) begin
-            ready_out <= 1'b1;
-            count <= 0;
+    function automatic logic [3:0] add_flags(input logic [63:0] a, input logic [63:0] b, input logic [63:0] y);
+        logic [64:0] sum;
+        begin
+            sum = {1'b0, a} + {1'b0, b};
+            add_flags = {y[63], (y == 64'd0), sum[64], ((a[63] == b[63]) && (y[63] != a[63]))};
+        end
+    endfunction
+
+    function automatic logic [3:0] sub_flags(input logic [63:0] a, input logic [63:0] b, input logic [63:0] y);
+        begin
+            sub_flags = {y[63], (y == 64'd0), (a >= b), ((a[63] != b[63]) && (y[63] != a[63]))};
+        end
+    endfunction
+
+    always_ff @(posedge clk) begin
+        if (!rstN || flush) begin
+            counter <= '0;
+            pending <= 1'b0;
+            result_tag <= '0;
+            result_value <= 64'd0;
+            result_flags <= 4'd0;
+            result_flags_valid <= 1'b0;
+            send_to_bus <= 1'b0;
+        end else begin
+            if (valid_in && ready_out) begin
+                logic [63:0] temp_result;
+                counter <= '0;
+                pending <= 1'b1;
+                result_tag <= tag;
+                send_to_bus <= should_output;
+                result_flags_valid <= set_flags;
+
+                unique case (op)
+                    OP_SUB: begin
+                        temp_result = arg1 - arg2;
+                        result_flags <= sub_flags(arg1, arg2, temp_result);
+                    end
+                    OP_COND_CHECK: begin
+                        if (src2_valid) begin
+                            temp_result = arg2[0] ? (arg1 + imm) : (arg1 + 64'd4);
+                        end else begin
+                            temp_result = {63'd0, cond_true(cond, arg1[3:0])};
+                        end
+                        result_flags <= 4'd0;
+                    end
+                    default: begin
+                        temp_result = arg1 + arg2;
+                        result_flags <= add_flags(arg1, arg2, temp_result);
+                    end
+                endcase
+
+                result_value <= temp_result;
+            end else if (valid_out && accepted_by_bus) begin
+                pending <= 1'b0;
+            end else if (pending && !valid_out) begin
+                counter <= counter + 1'b1;
+            end
         end
     end
-end
 
 endmodule
 
 module alu_rs #(
     parameter int unsigned RS_ENTRIES = 4,
-	parameter int unsigned tagW = 6,
     parameter int unsigned TAG_LEN = 6
 ) (
-	input logic clk,
-	input logic rstN,
-	input logic flush,
-
-	// Issue input
-	input logic issueValid,
-	output logic issueReady,
-    input issue_payload_t payload_bus,
-    input fu_result_t cdb_out,
-
-    // Out to execute
-    output logic        valid_out,
-    input  logic         ready_in,
-    output logic [63:0] arg1,
-    output logic [63:0] arg2,
+    input  logic           clk,
+    input  logic           rstN,
+    input  logic           flush,
+    input  logic           issueValid,
+    output logic           issueReady,
+    input  issue_payload_t payload_bus,
+    input  fu_result_t     cdb_out,
+    output logic           valid_out,
+    input  logic           ready_in,
+    output logic [63:0]    arg1,
+    output logic [63:0]    arg2,
     output logic [TAG_LEN-1:0] tag,
-    output logic [TAG_LEN-1:0] flag_tag,
-    output logic should_output,
-    output logic set_flags,
-    output fu_op_t op
+    output logic           should_output,
+    output logic           set_flags,
+    output logic           src2_valid,
+    output logic [3:0]     cond,
+    output logic [63:0]    imm,
+    output fu_op_t         op
 );
 
-typedef struct packed {
-    logic valid;
-    logic waiting1;
-    logic waiting2;
-    logic [63:0] arg1;
-    logic [63:0] arg2;
-    logic [TAG_LEN-1:0] reg1_tag;
-    logic [TAG_LEN-1:0] reg2_tag;
-    logic [TAG_LEN-1:0] result_tag;
-    logic [TAG_LEN-1:0] flag_tag;
-    logic should_output;
-    logic set_flags;
-    fu_op_t op;
-} rs_entry;
+    typedef struct packed {
+        logic valid;
+        logic waiting1;
+        logic waiting2;
+        logic waiting1_flags;
+        logic waiting2_flags;
+        logic [63:0] arg1;
+        logic [63:0] arg2;
+        logic [TAG_LEN-1:0] reg1_tag;
+        logic [TAG_LEN-1:0] reg2_tag;
+        logic [TAG_LEN-1:0] result_tag;
+        logic should_output;
+        logic set_flags;
+        logic src2_valid;
+        logic [3:0] cond;
+        logic [63:0] imm;
+        fu_op_t op;
+    } rs_entry_t;
 
-rs_entry[RS_ENTRIES-1:0] entries;
-logic[$clog2(RS_ENTRIES):0] count;
-logic[$clog2(RS_ENTRIES)-1:0] selected;
+    rs_entry_t entries [RS_ENTRIES];
+    logic [RS_ENTRIES-1:0] curr_entries;
+    logic [RS_ENTRIES-1:0] ready_entries;
+    logic [$clog2(RS_ENTRIES)-1:0] sent_index;
 
-// On start up set payload to not valid
-initial begin 
-    count = 0;
-    issueReady = 1;
-    valid_out = 0;
-    selected = 0;
-end
+    genvar i;
+    generate
+        for (i = 0; i < RS_ENTRIES; i++) begin: ready_gen
+            assign ready_entries[i] = curr_entries[i] && !entries[i].waiting1 && !entries[i].waiting2;
+        end
+    endgenerate
 
-logic[$clog2(RS_ENTRIES)-1:0] index_open;
-logic open_valid;
-logic[$clog2(RS_ENTRIES)-1:0] index_ready;
-logic ready_valid;
-logic[$clog2(RS_ENTRIES)-1:0] index_reg1_update;
-logic reg1_update_valid;
-logic[$clog2(RS_ENTRIES)-1:0] index_reg2_update;
-logic reg2_update_valid;
+    assign issueReady = curr_entries != {RS_ENTRIES{1'b1}};
 
-always_comb begin
-    index_open = 0;
-    open_valid = 1'b0;
-    index_ready = 0;
-    ready_valid = 1'b0;
-    reg1_update_valid = 1'b0;
-    index_reg1_update = 0;
-    reg2_update_valid = 1'b0;
-    index_reg2_update = 0;
-
-    for(int i = 0; i < RS_ENTRIES; i++) begin: CHECK_READY
-        if(~entries[i].valid) begin
-            open_valid = 1'b1;
-            index_open = i[$clog2(RS_ENTRIES)-1:0];
+    always_ff @(posedge clk) begin
+        if (!rstN || flush) begin
+            curr_entries <= '0;
+            valid_out <= 1'b0;
+            sent_index <= '0;
         end else begin
-            if(~entries[i].waiting1 && ~entries[i].waiting2) begin
-                ready_valid = 1'b1;
-                index_ready = i[$clog2(RS_ENTRIES)-1:0];
+            logic accepted;
+            logic selected;
+            accepted = valid_out && ready_in;
+
+            if (issueValid && issueReady) begin
+                logic inserted;
+                inserted = 1'b0;
+                for (int j = 0; j < RS_ENTRIES; j++) begin
+                    if (!inserted && !curr_entries[j]) begin
+                        inserted = 1'b1;
+                        curr_entries[j] <= 1'b1;
+                        entries[j].waiting1 <= payload_bus.src1_valid && !payload_bus.src1_ready;
+                        entries[j].waiting2 <= payload_bus.src2_valid && !payload_bus.src2_ready;
+                        entries[j].waiting1_flags <= payload_bus.src1_is_flags;
+                        entries[j].waiting2_flags <= payload_bus.src2_is_flags;
+                        entries[j].arg1 <= payload_bus.src1_value;
+                        entries[j].arg2 <= payload_bus.src2_valid ? payload_bus.src2_value :
+                                           (payload_bus.imm_valid ? payload_bus.imm : 64'd0);
+                        entries[j].reg1_tag <= payload_bus.src1_tag;
+                        entries[j].reg2_tag <= payload_bus.src2_tag;
+                        entries[j].result_tag <= payload_bus.dest_tag;
+                        entries[j].should_output <= payload_bus.dest_valid || payload_bus.fu_op == OP_COND_CHECK;
+                        entries[j].set_flags <= payload_bus.set_flags;
+                        entries[j].src2_valid <= payload_bus.src2_valid;
+                        entries[j].cond <= payload_bus.cond;
+                        entries[j].imm <= payload_bus.imm;
+                        entries[j].op <= payload_bus.fu_op;
+                    end
+                end
+            end
+
+            if (accepted) begin
+                curr_entries[sent_index] <= 1'b0;
+            end
+
+            selected = 1'b0;
+            for (int j = 0; j < RS_ENTRIES; j++) begin
+                if (!selected && ready_entries[j] && (!accepted || j[$clog2(RS_ENTRIES)-1:0] != sent_index)) begin
+                    selected = 1'b1;
+                    sent_index <= j[$clog2(RS_ENTRIES)-1:0];
+                    arg1 <= entries[j].arg1;
+                    arg2 <= entries[j].arg2;
+                    tag <= entries[j].result_tag;
+                    should_output <= entries[j].should_output;
+                    set_flags <= entries[j].set_flags;
+                    src2_valid <= entries[j].src2_valid;
+                    cond <= entries[j].cond;
+                    imm <= entries[j].imm;
+                    op <= entries[j].op;
+                end
+            end
+            valid_out <= selected;
+
+            if (cdb_out.valid) begin
+                for (int j = 0; j < RS_ENTRIES; j++) begin
+                    if (curr_entries[j] && entries[j].waiting1 && cdb_out.tag == entries[j].reg1_tag) begin
+                        entries[j].waiting1 <= 1'b0;
+                        entries[j].arg1 <= entries[j].waiting1_flags ? {{60{1'b0}}, cdb_out.flags} : cdb_out.value;
+                    end
+                    if (curr_entries[j] && entries[j].waiting2 && cdb_out.tag == entries[j].reg2_tag) begin
+                        entries[j].waiting2 <= 1'b0;
+                        entries[j].arg2 <= entries[j].waiting2_flags ? {{60{1'b0}}, cdb_out.flags} : cdb_out.value;
+                    end
+                end
             end
         end
     end
-end
 
-assign issueReady <= (count <= RS_ENTRIES[$clog2(RS_ENTRIES):0]) ? 1'b1 : 1'b0;
-
-logic will_insert = issueValid && issueReady;
-logic will_remove = valid_out && ready_in;
-
-always_ff @(posedge clk) begin
-    // Output ready if done, disable ready if waiting on instr
-    // At the same time output result/requests for rob
-    if(~rstN || flush) begin
-        issueReady <= 1'b1;
-    end else begin
-        // Insert issue into new rs
-        // TODO ISSUE READY SHOULD BE SET IF THE COUNT IS CORRECT
-        if(issueValid && issueReady && open_valid) begin
-            count <= count + 1;
-            entries[index_open].valid <= 1'b1;
-            entries[index_open].waiting1 <= ~payload_bus.src1_ready;
-            entries[index_open].waiting2 <= ~payload_bus.src2_ready && payload_bus.src2_valid;
-            entries[index_open].arg1 <= payload_bus.src1_value;
-            entries[index_open].arg2 <= payload_bus.src2_valid ? payload_bus.src2_value : payload_bus.imm;
-            entries[index_open].reg1_tag <= payload_bus.src1_tag;
-            entries[index_open].reg2_tag <= payload_bus.src2_tag;
-            entries[index_open].result_tag <= payload_bus.dest_tag;
-            entries[index_open].set_flags <= payload_bus.set_flags;
-            entries[index_open].op <= payload_bus.fu_op; 
-            // Add 1 to count
-        end
-
-        // Valid out should be based on if current output is good
-
-        // ALU accepted input, remove rs
-        if(valid_out && ready_in) begin
-            entries[selected].valid <= 1'b0;
-            // I think this should be overwritten if its still
-            // valid next cycle
-            valid_out <= 1'b0;
-            // Remove 1 from count
-        end
-
-        // Update rs' with cdb values
-        for(int i = 0; i < RS_ENTRIES; i++) begin
-            if(cdb_out.valid) begin
-                if(cdb_out.tag == entries[i].reg1_tag && entries[i].waiting1) begin
-                    entries[i].arg1 <= cdb_out.value;
-                    entries[i].waiting1 <= 1'b0;
-                end else if(cdb_out.tag == entries[i].reg2_tag && entries[i].waiting2) begin
-                    entries[i].arg2 <= cdb_out.value;
-                    entries[i].waiting2 <= 1'b0;
-                end
-            end 
-        end
-
-        // Output selected values
-        if(ready_valid) begin
-            // Might be able to move this to be 
-            // always comb using selected?
-            selected <= index_ready;
-            valid_out <= 1'b1;
-            arg1 <= entries[index_ready].arg1;
-            arg2 <= entries[index_ready].arg2;
-            tag <= entries[index_ready].result_tag;
-            should_output <= 1'b1; // I think always for add?
-            set_flags <= entries[index_ready].set_flags;
-            op <= entries[index_ready].op;
-        end
-    end
-end
 endmodule

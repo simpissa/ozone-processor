@@ -405,27 +405,31 @@ void sim_run(cpu_state_t* cpu, const char* binary_path) {
     cs_close(&handle);
 }
 
-void sim_print_state(cpu_state_t* cpu) {
-    plog(LOG_INFO, "\n========== Final Architectural State ==========\n");
-    plog(LOG_INFO, "PC:     0x%016lx\n", cpu->pc);
-    plog(LOG_INFO, "PSTATE: 0x%08x (N:%d Z:%d C:%d V:%d)\n", cpu->pstate, (cpu->pstate & FLAG_N) != 0, (cpu->pstate & FLAG_Z) != 0, (cpu->pstate & FLAG_C) != 0, (cpu->pstate & FLAG_V) != 0);
-    plog(LOG_INFO, "EL:     %d\n", cpu->el);
-    plog(LOG_INFO, "\nGeneral Purpose Registers:\n");
-    for (int i = 0; i < 31; i++) plog(LOG_INFO, "X%-2d: 0x%016lx%s", i, cpu->x[i], (i % 2 == 1) ? "\n" : "    ");
-    plog(LOG_INFO, "\n\nSystem Registers:\n");
-    plog(LOG_INFO, "SP_EL0:    0x%016lx    SP_EL1:    0x%016lx\n", cpu->sp_el0, cpu->sp_el1);
-    plog(LOG_INFO, "SPSR_EL1:  0x%016lx    ELR_EL1:   0x%016lx\n", cpu->spsr_el1, cpu->elr_el1);
-    plog(LOG_INFO, "ESR_EL1:   0x%016lx    TTBR0_EL1: 0x%016lx\n", cpu->esr_el1, cpu->ttbr0_el1);
-    plog(LOG_INFO, "VBAR_EL1:  0x%016lx    ACTLR_EL1: 0x%016lx\n", cpu->vbar_el1, cpu->actlr_el1);
-    plog(LOG_INFO, "\nFloating Point Registers (64-bit):\n");
-    for (int i = 0; i < 32; i++) plog(LOG_INFO, "V%-2d: 0x%016lx%s", i, cpu->v[i], (i % 3 == 2) ? "\n" : "    ");
-    plog(LOG_INFO, "\n\nModified Memory:\n");
+void sim_fprint_state(FILE* out, cpu_state_t* cpu) {
+    fprintf(out, "\n========== Final Architectural State ==========\n");
+    fprintf(out, "PC:     0x%016lx\n", cpu->pc);
+    fprintf(out, "PSTATE: 0x%08x (N:%d Z:%d C:%d V:%d)\n", cpu->pstate, (cpu->pstate & FLAG_N) != 0, (cpu->pstate & FLAG_Z) != 0, (cpu->pstate & FLAG_C) != 0, (cpu->pstate & FLAG_V) != 0);
+    fprintf(out, "EL:     %d\n", cpu->el);
+    fprintf(out, "\nGeneral Purpose Registers:\n");
+    for (int i = 0; i < 31; i++) fprintf(out, "X%-2d: 0x%016lx%s", i, cpu->x[i], (i % 2 == 1) ? "\n" : "    ");
+    fprintf(out, "\n\nSystem Registers:\n");
+    fprintf(out, "SP_EL0:    0x%016lx    SP_EL1:    0x%016lx\n", cpu->sp_el0, cpu->sp_el1);
+    fprintf(out, "SPSR_EL1:  0x%016lx    ELR_EL1:   0x%016lx\n", cpu->spsr_el1, cpu->elr_el1);
+    fprintf(out, "ESR_EL1:   0x%016lx    TTBR0_EL1: 0x%016lx\n", cpu->esr_el1, cpu->ttbr0_el1);
+    fprintf(out, "VBAR_EL1:  0x%016lx    ACTLR_EL1: 0x%016lx\n", cpu->vbar_el1, cpu->actlr_el1);
+    fprintf(out, "\nFloating Point Registers (64-bit):\n");
+    for (int i = 0; i < 32; i++) fprintf(out, "V%-2d: 0x%016lx%s", i, cpu->v[i], (i % 3 == 2) ? "\n" : "    ");
+    fprintf(out, "\n\nModified Memory:\n");
     bool any_mod = false;
     for (uint64_t i = 0; i < DRAM_SIZE; i += 8) {
         bool word_mod = false;
         for (int j = 0; j < 8; j++) if (cpu->modified_bitmap[(i + j) / 8] & (1 << ((i + j) % 8))) { word_mod = true; break; }
-        if (word_mod) { uint64_t val; memcpy(&val, &cpu->dram[i], 8); plog(LOG_INFO, "0x%016lx: 0x%016lx\n", cpu->dram_base + i, val); any_mod = true; }
+        if (word_mod) { uint64_t val; memcpy(&val, &cpu->dram[i], 8); fprintf(out, "0x%016lx: 0x%016lx\n", cpu->dram_base + i, val); any_mod = true; }
     }
-    if (!any_mod) plog(LOG_INFO, "(none)\n");
-    plog(LOG_INFO, "================================================\n");
+    if (!any_mod) fprintf(out, "(none)\n");
+    fprintf(out, "================================================\n");
+}
+
+void sim_print_state(cpu_state_t* cpu) {
+    sim_fprint_state(stdout, cpu);
 }

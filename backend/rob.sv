@@ -5,7 +5,7 @@ import types::*;
 module rob #(
     parameter int unsigned ROB_SIZE = (1 << ROB_TAG_W),
     parameter logic [63:0] SYNC_EXCEPTION_OFFSET = 64'd1024,
-    parameter logic [63:0] TERMINATE_VALUE = 64'hFFFF_FFFF_FFFF_FFFF,
+    parameter logic [63:0] TERMINATE_VALUE = 64'hdead
 ) (
     input  logic                 clk,
     input  logic                 rst,
@@ -17,6 +17,7 @@ module rob #(
     input  logic [63:0]          pc_in,
     input  logic [4:0]           dest_reg,
     input  logic                 dest_valid,
+    input  logic                 dest_is_fp,
     input  logic                 is_branch_in,
     input  logic                 is_conditional_in,
     input  logic                 is_store_in,
@@ -60,6 +61,9 @@ module rob #(
     output logic [4:0]           commit_gpr_rd,
     output logic [63:0]          commit_gpr_value,
     output logic [ROB_TAG_W-1:0] commit_tag,
+    output logic                 commit_fp_valid,
+    output logic [4:0]           commit_fp_rd,
+    output logic [63:0]          commit_fp_value,
 
     // writeback to special registers
     output logic                 commit_spr_valid,
@@ -117,6 +121,7 @@ module rob #(
         logic [4:0]  arch_rd;
         logic        el;
         logic        rd_valid;
+        logic        rd_is_fp;
         logic        is_branch;
         logic        is_conditional;
         logic        is_store;
@@ -155,8 +160,16 @@ module rob #(
     logic                 head_can_commit;
     logic                 head_branch_mispredict;
     logic                 head_branch_to_zero;
+    logic                 head_zero_terminates;
     logic                 head_eret_redirect;
     logic [3:0]           head_exception_code;
+    logic                 DBG;
+
+    initial begin
+        if (!$value$plusargs("BDEBUG=%b", DBG)) begin
+            DBG = 1'b0;
+        end
+    end
 
     assign head_idx   = head[ROB_TAG_W-1:0];
     assign tail_idx   = tail[ROB_TAG_W-1:0];
@@ -218,6 +231,9 @@ module rob #(
         commit_gpr_rd          = '0;
         commit_gpr_value       = 64'd0;
         commit_tag             = '0;
+        commit_fp_valid        = 1'b0;
+        commit_fp_rd           = '0;
+        commit_fp_value        = 64'd0;
         commit_spr_valid       = 1'b0;
         commit_spr_id          = SPR_INVALID;
         commit_spr_value       = 64'd0;
@@ -273,6 +289,7 @@ module rob #(
         head_branch_to_zero = head_entry.is_branch &&
                               head_entry.last_uop &&
                               (head_entry.result == 64'd0);
+        head_zero_terminates = head_branch_to_zero && (spr_vbar_el1 == 64'd0);
         head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
         head_exception_code = head_branch_to_zero ? EXC_CODE_SYNC :
                               (head_entry.exception_code == EXC_CODE_NONE) ? EXC_CODE_SYNC : head_entry.exception_code;
@@ -281,7 +298,9 @@ module rob #(
         if (head_can_commit) begin
             commit_tag = head_idx;
 
-            if (head_entry.exception || head_branch_to_zero) begin
+            if (head_zero_terminates) begin
+                commit_terminate = 1'b1;
+            end else if (head_entry.exception || head_branch_to_zero) begin
                 // ---EXCEPTIONS---
                 /*
                 On exception
@@ -292,21 +311,22 @@ module rob #(
                 */
                 commit_is_exception   = 1'b1;
                 commit_exception_code = head_exception_code;
-                commit_exception_pc   = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
+                commit_exception_pc   = head_branch_to_zero ? head_entry.pc : head_entry.exception_pc;
                 commit_exc_elr_valid  = 1'b1;
-                commit_exc_elr_value  = head_branch_to_zero ? 64'd0 : head_entry.exception_pc;
-                // Pack NZCV at [31:28] (ARM convention) and old EL at [0].
-                // ERET uses the same layout to restore PSTATE.
+                commit_exc_elr_value  = head_branch_to_zero ? head_entry.pc : head_entry.exception_pc;
                 commit_exc_spsr_valid = 1'b1;
-                commit_exc_spsr_value = {{32{1'b0}}, current_flags_in, {27{1'b0}}, head_entry.el};
-                commit_exc_esr_valid  = 1'b1;
-                commit_exc_esr_value  = {{60{1'b0}}, head_exception_code};
+                commit_exc_spsr_value = {63'd0, head_entry.el};
+                commit_exc_esr_valid  = 1'b0;
+                commit_exc_esr_value  = 64'd0;
                 redirect_pc           = spr_vbar_el1 + SYNC_EXCEPTION_OFFSET;
                 flush                 = 1'b1;
             end else begin
-                commit_gpr_valid = head_entry.rd_valid && !head_entry.is_store;
+                commit_gpr_valid = head_entry.rd_valid && !head_entry.rd_is_fp && !head_entry.is_store;
                 commit_gpr_rd    = head_entry.arch_rd;
                 commit_gpr_value = head_entry.result;
+                commit_fp_valid  = head_entry.rd_valid && head_entry.rd_is_fp && !head_entry.is_store;
+                commit_fp_rd     = head_entry.arch_rd;
+                commit_fp_value  = head_entry.result;
 
                 commit_spr_valid = head_entry.is_msr;
                 commit_spr_id    = head_entry.spr_id;
@@ -322,7 +342,6 @@ module rob #(
                                    (head_entry.spr_id == SPR_ACTLR_EL1) &&
                                    (head_entry.result == TERMINATE_VALUE) &&
                                    head_entry.last_uop;
-
                 if (head_branch_mispredict) begin
                     redirect_pc = head_entry.result;
                     flush              = 1'b1;
@@ -332,6 +351,9 @@ module rob #(
                     redirect_pc    = spr_elr_el1;
                     commit_is_eret     = 1'b1;
                     flush              = 1'b1;
+                    if (DBG) begin
+                        $display("ROB eret commit: tag=%0d pc=%016x redirect=%016x", head_idx, head_entry.pc, spr_elr_el1);
+                    end
                 end
             end
 
@@ -346,8 +368,8 @@ module rob #(
         end
 
         if (flush) begin
-            head_n = '0;
-            tail_n = '0;
+            head_n = tail;
+            tail_n = tail;
 
             entries_n = '{default: '{default: '0, spr_id: SPR_INVALID}};
         end else begin
@@ -362,6 +384,7 @@ module rob #(
                 entries_n[tail_idx].pc               = pc_in;
                 entries_n[tail_idx].exception_pc     = exception_pc_in;
                 entries_n[tail_idx].arch_rd          = dest_reg;
+                entries_n[tail_idx].rd_is_fp         = dest_is_fp;
                 entries_n[tail_idx].el               = exception_el_in;
                 entries_n[tail_idx].rd_valid         = dest_valid;
                 entries_n[tail_idx].is_branch        = is_branch_in;
@@ -397,6 +420,13 @@ module rob #(
 
             entries <= '{default: '{default: '0, spr_id: SPR_INVALID}};
         end else begin
+            if (DBG && full && !(entries[head_idx].valid && entries[head_idx].ready)) begin
+                $display("ROB full: head=%0d tail=%0d head_valid=%0b head_ready=%0b head_pc=%016x head_fu-ish branch=%0b store=%0b msr=%0b eret=%0b",
+                         head, tail, entries[head_idx].valid, entries[head_idx].ready,
+                         entries[head_idx].pc, entries[head_idx].is_branch,
+                         entries[head_idx].is_store, entries[head_idx].is_msr,
+                         entries[head_idx].is_eret);
+            end
             head <= head_n;
             tail <= tail_n;
 

@@ -1,7 +1,7 @@
-        .arch armv8-a
-        .text
-        .align  2
-        .p2align 3,,7
+    .arch armv8-a
+    .text
+    .align  2
+    .p2align 3,,7
 .global userspace_entry
 
 userspace_entry:

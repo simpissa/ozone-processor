@@ -279,10 +279,10 @@ module shifter_rs #(
                     if (!inserted&&!curr_entries[j]) begin
                         inserted=1'b1;
                         curr_entries[j]<=1'b1;
-                        rs[j].waiting1<=!in.src1_ready;
-                        rs[j].waiting2<=!in.src2_ready;
+                        rs[j].waiting1<=in.src1_valid && !in.src1_ready;
+                        rs[j].waiting2<=in.src2_valid && !in.src2_ready;
                         rs[j].arg1<=in.src1_value;
-                        rs[j].arg2<=in.src2_value;
+                        rs[j].arg2<=in.src2_valid ? in.src2_value : (in.imm_valid ? in.imm : 64'd0);
                         rs[j].reg1_tag<=in.src1_tag;
                         rs[j].reg2_tag<=in.src2_tag;
                         rs[j].result_tag<=in.dest_tag;

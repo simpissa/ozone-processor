@@ -51,11 +51,14 @@ module load_queue #(
     input  logic         l1_resp_valid,
     input  logic [ROB_TAG_W-1:0]   l1_resp_id,
     input  logic [63:0]  l1_resp_data,
+    input  logic         l1_fault_valid,
+    input  logic [ROB_TAG_W-1:0]   l1_fault_id,
 
     // Completion output (load finished)
     output logic         load_complete_valid,
     output logic [ROB_TAG_W-1:0]   load_complete_id,
-    output logic [63:0]  load_complete_data
+    output logic [63:0]  load_complete_data,
+    output logic         load_complete_exception
 );
 
 localparam IDX_W = $clog2(LQ_SIZE);
@@ -71,6 +74,7 @@ typedef struct packed {
     logic issued;
     logic conflict;
     logic completed;
+    logic exception;
     logic [63:0] data;
 } lq_entry;
 
@@ -142,6 +146,7 @@ initial begin
         queue[i].issued    = 0;
         queue[i].conflict  = 0;
         queue[i].completed = 0;
+        queue[i].exception = 0;
         //id_map[i]          = INVALID_IDX;
     end
 
@@ -153,6 +158,7 @@ initial begin
     sq_query_valid = 0;
     l1_req_valid = 0;
     load_complete_valid = 0;
+    load_complete_exception = 0;
     sq_had_miss = 0;
     count = 0;
 
@@ -173,6 +179,7 @@ always_ff @(posedge clk) begin
             queue[i].issued     <= 1'b0;
             queue[i].conflict   <= 1'b0;
             queue[i].completed  <= 1'b0;
+            queue[i].exception  <= 1'b0;
             queue[i].data       <= 64'b0;
             //id_map[i]           <= INVALID_IDX;
         end
@@ -186,6 +193,7 @@ always_ff @(posedge clk) begin
         sq_query_valid <= 0;
         l1_req_valid <= 0;
         load_complete_valid <= 0;
+        load_complete_exception <= 0;
 
         waiting_issue <= 1;
     end
@@ -205,6 +213,7 @@ always_ff @(posedge clk) begin
             queue[tail].issued <= 0;
             queue[tail].conflict <= 0;
             queue[tail].completed <= 0;
+            queue[tail].exception <= 0;
             queue[tail].valid <= 1;
             
             tail <= tail + 1;
@@ -337,6 +346,7 @@ always_ff @(posedge clk) begin
             end
         end else if (sq_forward_valid) begin
             queue[issue_idx].completed <= 1;
+            queue[issue_idx].exception <= 0;
             queue[issue_idx].data <= sq_forward_data;
             issue_storeq <= 0;
             waiting_issue <= 1;
@@ -364,7 +374,21 @@ always_ff @(posedge clk) begin
             l1_req_valid <= 0;
         end
 
-        if (l1_resp_valid) begin
+        if (l1_fault_valid) begin
+
+            if (DBG)
+                $display("Loadq Status: Received fault from L1. queue id %d l1_id %d issue_idx %d", queue[issue_idx].id, l1_fault_id, issue_idx);
+
+            assert(queue[issue_idx].id == l1_fault_id);
+
+            queue[issue_idx].completed <= 1;
+            queue[issue_idx].exception <= 1;
+            queue[issue_idx].data <= 64'd0;
+
+            issue_cache <= 0;
+            waiting_issue <= 1;
+            l1_req_valid <= 0;
+        end else if (l1_resp_valid) begin
 
             if (DBG)
                 $display("Loadq Status: Received response from L1. queue id %d l1_id %d issue_idx %d", queue[issue_idx].id, l1_resp_id, issue_idx);
@@ -373,6 +397,7 @@ always_ff @(posedge clk) begin
 
 
             queue[issue_idx].completed <= 1;
+            queue[issue_idx].exception <= 0;
             queue[issue_idx].data <= l1_resp_data;
 
             issue_cache <= 0;
@@ -393,6 +418,7 @@ always_ff @(posedge clk) begin
 
         load_complete_id    <= queue[head].id;
         load_complete_data  <= queue[head].data;
+        load_complete_exception <= queue[head].exception;
         load_complete_valid <= 1;
 
         // TODO: do we need to wait for data to be read? or can we just move on
@@ -406,12 +432,14 @@ always_ff @(posedge clk) begin
         queue[head].issued <= 0;
         queue[head].conflict <= 0;
         queue[head].completed <= 0;
+        queue[head].exception <= 0;
         head <= head + 1;
 
     end else begin
         
         load_complete_id <= 0;
         load_complete_data <= 0;
+        load_complete_exception <= 0;
         load_complete_valid <= 0;
     end
 

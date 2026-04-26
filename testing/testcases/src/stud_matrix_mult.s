@@ -12,14 +12,14 @@ userspace_entry:
     add  x1, x1, :lo12:matB
 
     // Load A[0][0], A[0][1]
-    ldur d0, [x0, #0]   
-    ldur d1, [x0, #8]     
+    ldur d0, [x0, #0]
+    ldur d1, [x0, #8]
 
     // Load B[0][0], B[1][0]
-    ldur d2, [x1, #0]     
-    ldur d3, [x1, #16]    
+    ldur d2, [x1, #0]
+    ldur d3, [x1, #16]
 
-    
+
     fmul d4, d0, d2
 
     fmul d5, d1, d3

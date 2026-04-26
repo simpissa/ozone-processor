@@ -24,12 +24,13 @@ module backend #(
 	input fu_result_t cdbBroadcast,
 
 	// Writeback output
-	output logic wbValid,
-	input logic wbReady,
-	output logic [tagW-1:0] wbTag,
-	output logic [63:0] wbValue,
-	output logic [4:0] wbFflags,
-	output logic fpuBusy
+output logic wbValid,
+input logic wbReady,
+output logic [tagW-1:0] wbTag,
+output logic [63:0] wbValue,
+output logic [4:0] wbFflags,
+output logic wbFlagsValid,
+output logic fpuBusy
 );
 
 logic fpuReqValid;
@@ -91,6 +92,7 @@ fpuExecute #(
 	.respTag(wbTag),
 	.respResult(wbValue),
 	.respFflags(wbFflags),
+	.respFlagsValid(wbFlagsValid),
 	.busy(fpuCoreBusy)
 );
 

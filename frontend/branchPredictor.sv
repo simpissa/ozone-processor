@@ -77,12 +77,12 @@ module branchPredictor #(
 			ghr <= '0;
 
 			for (i = 0; i < PHT_ENTRIES; i = i + 1)
-				pht[i] = 2'b01; // weakly not-taken
+				pht[i] = 2'b10; // weakly taken once a BTB entry exists
 
 			for (i = 0; i < BTB_ENTRIES; i = i + 1) begin
-				btbValid[i] <= 1'b0;
-				btbTag[i]   <= 64'd0;
-				btbTgt[i]   <= 64'd0;
+				btbValid[i] = 1'b0;
+				btbTag[i]   = 64'd0;
+				btbTgt[i]   = 64'd0;
 			end
 		end else if (resolveValid && resolveIsBranch) begin
 			if (resolveIsConditional) begin
@@ -97,7 +97,7 @@ module branchPredictor #(
 				if (GHR_BITS > 1)
 					ghr <= {ghr[GHR_BITS-2:0], resolveTaken};
 				else
-					ghr <= resolveTaken;
+					ghr <= {{(GHR_BITS-1){1'b0}}, resolveTaken};
 			end
 
 			if (resolveTaken) begin

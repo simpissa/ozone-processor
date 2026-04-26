@@ -7,6 +7,7 @@ module store_queue #(
     parameter int ROB_TAG_W = 6
 )(
     input logic rst,           // reset
+    input logic flush,
     input logic clk_in,        // clock
     
     // Interacting with trace
@@ -44,6 +45,9 @@ module store_queue #(
     input logic [ROB_TAG_W-1:0] lq_head_age,
     input logic lq_head_valid,
 
+    input logic commit_valid,
+    input logic [ROB_TAG_W-1:0] commit_tag,
+
 
     // Note sure when can commit stores, should be given by ROB
     // Interacting with L1 cache
@@ -76,6 +80,7 @@ module store_queue #(
         logic trace_value_is_valid;
         logic [63:0] trace_value;
         logic [ROB_TAG_W-1:0] age;
+        logic committed;
     } st_entry;
 
     st_entry SQ [SQ_SIZE];
@@ -100,7 +105,10 @@ module store_queue #(
     assign receive_new_data = payload_ready_o&payload_valid_i;
 
     // TODO: Just assume data can be committed once queue full and resolved at head of queue?
-    assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&!curr_unresolved[sq_head];
+    logic head_commit_now;
+    assign head_commit_now = commit_valid && curr_entries[sq_head] && (commit_tag == SQ[sq_head].trace_id);
+    assign valid_out = (curr_entries!={SQ_SIZE{1'b0}}&&(!lq_head_valid||lq_head_age-SQ[sq_head].age<16))&&
+                       !curr_unresolved[sq_head] && (SQ[sq_head].committed || head_commit_now);
     assign write_new_data = valid_out & ready_in;
     assign write_vaddr = SQ[sq_head].trace_vaddr;
     assign write_value = SQ[sq_head].trace_value;
@@ -109,9 +117,14 @@ module store_queue #(
 
     logic [SQ_SIZE-1:0] tailmask;
     always_ff @(posedge clk_in) begin
-        if(rst) begin
+        if(rst || flush) begin
             sq_head<=0;
             sq_tail<=0;
+            curr_entries <= '0;
+            tailmask <= '0;
+            for (int j = 0; j < SQ_SIZE; ++j) begin
+                SQ[j] <= '0;
+            end
         end else begin
             if (cdb_i.valid) begin
                 // resolve values here (possibly)
@@ -126,7 +139,15 @@ module store_queue #(
                     if (!SQ[i].trace_value_is_valid
                         && SQ[i].trace_value[ROB_TAG_W-1:0] == cdb_i.tag) begin
                         SQ[i].trace_value <= cdb_i.value;
-                        SQ[i].trace_vaddr_is_valid <= 1'b1;
+                        SQ[i].trace_value_is_valid <= 1'b1;
+                    end
+                end
+            end
+
+            if (commit_valid) begin
+                for (int i = 0; i < SQ_SIZE; ++i) begin
+                    if (curr_entries[i] && (SQ[i].trace_id == commit_tag)) begin
+                        SQ[i].committed <= 1'b1;
                     end
                 end
             end
@@ -153,6 +174,7 @@ module store_queue #(
                     SQ[sq_tail].trace_vaddr_is_valid <= payload_i.src1_ready;
                     SQ[sq_tail].trace_value_is_valid <= payload_i.src2_ready;
                     SQ[sq_tail].age <= payload_i.dest_tag; // rob dst doubles as age
+                    SQ[sq_tail].committed <= 1'b0;
                     
                     sq_tail<=sq_tail+1;
                     if(sq_tail==0) begin

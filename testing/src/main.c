@@ -25,6 +25,8 @@ static void print_usage(const char * const program_name) {
     "        software simulator\n"
     "    check AARCH64_BINARY\n"
     "        compares simulator and FPGA results\n"
+    "    check_verilator AARCH64_BINARY\n"
+    "        compares simulator and Verilator results\n"
     "    gen_linker_script\n"
     "        creates a linker script based on the config file. AArch64\n"
     "        binaries should be regenerated after this is done.\n"
@@ -91,6 +93,26 @@ static int compare_states(cpu_state_t* sim, cpu_state_t* fpga) {
     return mismatches;
 }
 
+static void dump_check_states(const char* path, const char* dut_name, cpu_state_t* sim, cpu_state_t* dut) {
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        plog(LOG_ERROR, "Couldn't open %s for writing architectural state dump\n", path);
+        return;
+    }
+
+    fprintf(f, "========== SIM Architectural State ==========\n");
+    sim_fprint_state(f, sim);
+
+    fprintf(f, "\n========== %s Architectural State ==========\n", dut_name);
+    uint8_t* original_bitmap = dut->modified_bitmap;
+    dut->modified_bitmap = sim->modified_bitmap;
+    sim_fprint_state(f, dut);
+    dut->modified_bitmap = original_bitmap;
+
+    fclose(f);
+    plog(LOG_INFO, "\nFinal architectural state dump in %s\n", path);
+}
+
 int main(int argc, char* argv[]) {
   if (argc < 3) {
     print_usage(argv[0]);
@@ -151,6 +173,27 @@ int main(int argc, char* argv[]) {
 
     sim_destroy(&sim_cpu);
     sim_destroy(&fpga_cpu);
+  } else if (strcmp(subcommand, "check_verilator") == 0) {
+    if (arg_idx >= argc) { print_usage(argv[0]); return -1; }
+    const char* const binary_path = argv[arg_idx];
+
+    plog(LOG_INFO, "Step 1: Simulating behavior...\n");
+    cpu_state_t sim_cpu;
+    sim_init(&sim_cpu, &config);
+    sim_run(&sim_cpu, binary_path);
+
+    plog(LOG_INFO, "Step 2: Running on Verilator...\n");
+    verilator_run(&config, binary_path);
+
+    cpu_state_t verilator_cpu;
+    sim_init(&verilator_cpu, &config);
+    verilator_get_state(&verilator_cpu);
+
+    dump_check_states("check_verilator_state.txt", "OZONE", &sim_cpu, &verilator_cpu);
+    compare_states(&sim_cpu, &verilator_cpu);
+
+    sim_destroy(&sim_cpu);
+    sim_destroy(&verilator_cpu);
   } else if (strcmp(subcommand, "gen_linker_script") == 0) {
     FILE* f = fopen("linker.ld", "w");
     if (!f) {
