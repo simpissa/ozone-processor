@@ -230,7 +230,7 @@ always_ff @(posedge clk) begin
         for (int i = 0; i < LQ_SIZE; ++i) begin
             if (queue[i].valid && cdb_i.tag == queue[i].vaddr[ROB_TAG_W-1:0]) begin
                 assert(!queue[i].addr_valid);
-                assert(!|cdb_i.value[63:48]);
+                assert(!cdb_i.value[63:48]);
                 queue[i].vaddr <= cdb_i.value[47:0];
                 queue[i].addr_valid <= 1;
             end
