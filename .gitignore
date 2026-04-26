@@ -1,7 +1,4 @@
 obj_dir
 .vscode
-backend/tests/shifter_tests/obj_dir
-backend/tests/logic_tests/obj_dir
-backend/tests/agu_tests/obj_dir
-testing/testcases/bin
-testing/check_verilator_state.txt
+bin
+check_verilator_state.txt
