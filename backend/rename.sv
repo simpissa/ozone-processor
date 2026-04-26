@@ -212,6 +212,8 @@ module rename #(
                 spr_srat_valid[i] <= 1'b0;
                 spr_srat_tag[i]   <= '0;
             end
+            sprf[SPR_SP_EL0[SPR_IDX_W-1:0]] <= 64'h40f000;
+            sprf[SPR_SP_EL1[SPR_IDX_W-1:0]] <= 64'h20100000;
             sprf[SPR_TTBR0_EL1[SPR_IDX_W-1:0]] <= 64'h1000;
         end else begin
             // PSTATE transitions at commit. Exception entry forces EL1

@@ -126,7 +126,12 @@ module Top (
     assign debug_itlb_valid  = proc.fe.fetchStage.itlb_valid_o;
     assign debug_itlb_pending = proc.fe.i_itlb.request_pending;
     assign debug_itlb_pte     = proc.fe.i_itlb.pte;
-    assign debug_commit_pc    = proc.be.i_rob.head_can_commit
+    assign debug_commit_pc    = (proc.be.i_rob.head_can_commit &&
+                                 proc.be.i_rob.head_entry.is_branch &&
+                                 proc.be.i_rob.head_entry.last_uop &&
+                                 (proc.be.i_rob.head_entry.result == 64'd0))
+                                ? 64'd0
+                                : proc.be.i_rob.head_can_commit
                                 ? (proc.be.i_rob.head_entry.pc + 64'd4)
                                 : debug_fe_pc;
     assign debug_commit_spr_value = proc.be.commit_spr_value;

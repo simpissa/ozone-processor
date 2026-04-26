@@ -160,6 +160,7 @@ module rob #(
     logic                 head_can_commit;
     logic                 head_branch_mispredict;
     logic                 head_branch_to_zero;
+    logic                 head_zero_terminates;
     logic                 head_eret_redirect;
     logic [3:0]           head_exception_code;
     logic                 DBG;
@@ -288,6 +289,7 @@ module rob #(
         head_branch_to_zero = head_entry.is_branch &&
                               head_entry.last_uop &&
                               (head_entry.result == 64'd0);
+        head_zero_terminates = head_branch_to_zero && (spr_vbar_el1 == 64'd0);
         head_eret_redirect = head_entry.is_eret && head_entry.last_uop;
         head_exception_code = head_branch_to_zero ? EXC_CODE_SYNC :
                               (head_entry.exception_code == EXC_CODE_NONE) ? EXC_CODE_SYNC : head_entry.exception_code;
@@ -296,7 +298,9 @@ module rob #(
         if (head_can_commit) begin
             commit_tag = head_idx;
 
-            if (head_entry.exception || head_branch_to_zero) begin
+            if (head_zero_terminates) begin
+                commit_terminate = 1'b1;
+            end else if (head_entry.exception || head_branch_to_zero) begin
                 // ---EXCEPTIONS---
                 /*
                 On exception
