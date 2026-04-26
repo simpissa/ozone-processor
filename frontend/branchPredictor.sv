@@ -8,13 +8,13 @@ module branchPredictor #(
 	input logic clk,
 	input logic rstN,
 
-	// Prediction query from fetch.
+	// Prediction query from fetch
 	input logic predReqValid,
 	input logic [63:0] predReqPC,
 	output logic predTaken,
 	output logic [63:0] predTarget,
 
-	// Branch resolution update from execute/commit.
+	// Branch resolution update from execute/commit
 	input logic resolveValid,
 	input logic resolveIsBranch,
 	input logic resolveIsConditional,

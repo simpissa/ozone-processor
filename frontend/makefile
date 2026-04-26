@@ -17,6 +17,12 @@ test-itlb: itlb
 
 debug-itlb: itlb
 	obj_dir/Vitlb_tb +IDEBUG=1
-	
+
+frontend: ../types.sv frontend.sv fetch.sv tests/frontendTb.sv
+	verilator --binary --assert --top-module frontendTb --Wno-CASEWITHX --Wno-CASEINCOMPLETE --Wno-WIDTHEXPAND ../types.sv tests/frontendTb.sv frontend.sv fetch.sv
+
+test-frontend: frontend
+	obj_dir/VfrontendTb
+
 	
     
