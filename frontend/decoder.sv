@@ -4,7 +4,7 @@ import types::*;
 
 typedef enum logic [5:0] {
     I_LDUR, I_STUR, I_MOVK, I_MOVZ, I_ADRP,
-    I_ADD, I_ADD_REG, I_ADDS, I_SUB, I_SUB_REG, I_SUBS,
+    I_ADD, I_ADD_REG, I_ADDS, I_SUB, I_SUB_REG, I_SUBS, I_SUBS_IMM,
     I_ORN, I_ORR, I_EOR, I_ANDS, I_AND_IMM, I_ORR_IMM, I_EOR_IMM, I_ANDS_IMM,
     I_UBFM, I_SBFM, I_LSLV, I_LSRV, I_ASRV,
     I_B, I_BCOND, I_BL, I_RET,
@@ -199,6 +199,7 @@ module decoder (
             32'b110100010???????????????????????: instr_id = I_SUB;
             32'b11001011??0?????????????????????: instr_id = I_SUB_REG;
             32'b11101011??0?????????????????????: instr_id = I_SUBS;
+            32'b111100010???????????????????????: instr_id = I_SUBS_IMM;
 
             32'b10101010??1?????????????????????: instr_id = I_ORN;
             32'b10101010??0?????????????????????: instr_id = I_ORR;
@@ -502,6 +503,18 @@ module decoder (
                 uop.src1_is_sp=(Rn_field == 5'd31);
                 uop.imm=addsub_imm64(instr[21:10], instr[22]);
                 uop.imm_valid=1'b1;
+            end
+            I_SUBS_IMM: begin
+                uop.fu_select=FU_ALU;
+                uop.fu_op=OP_SUB;
+                uop.rd=instr[4:0];
+                uop.r_dest_valid=(instr[4:0] != 5'd31);
+                uop.rs1=Rn_field;
+                uop.rs1_valid=1'b1;
+                uop.src1_is_sp=(Rn_field == 5'd31);
+                uop.imm=addsub_imm64(instr[21:10], instr[22]);
+                uop.imm_valid=1'b1;
+                uop.sets_flags=1'b1;
             end
             I_SUB_REG: begin
                 // In context of SUB (shifted reg), X31 is XZR, not SP
