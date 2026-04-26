@@ -65,3 +65,10 @@ clean:
 ozone.zip: clean
 	make -C verilator clean
 	zip -r ozone.zip capstone/ inc/ src/ testcases/ verilator/ Makefile ozone-config.json README.md verify.py
+
+test: tests
+	@echo "Make sure you have the top module running in a different terminal!"
+	@for elf in $(TEST_BIN_DIR)/*.elf; do \
+        echo "Running $$elf"; \
+        ./ozone ozone-config.json check_verilator $$elf || exit 1; \
+    done
